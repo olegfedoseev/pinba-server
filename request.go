@@ -62,7 +62,7 @@ func Decode(ts int64, data []byte) (metrics []string, err error) {
 	proto.Unmarshal(data, request)
 
 	if !request.Valid() {
-        return nil, fmt.Errorf("request is invalid")
+		return nil, fmt.Errorf("request is invalid")
 	}
 
 	var tags string

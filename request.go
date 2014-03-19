@@ -3,7 +3,6 @@ package main
 import (
 	"code.google.com/p/goprotobuf/proto"
 	"fmt"
-	"time"
 )
 
 type Request struct {
@@ -52,128 +51,44 @@ func (m *Request) Valid() bool {
 		len(m.TimerUtime) == len(m.TimerStime)
 }
 
-type Metric struct {
-	Time  int64
-	Name  string
-	Tags  map[string]string
-	Value float32
-}
-
-func (d *Metric) String() (str string) {
-	// put sys.cpu.user 1356998400 42.5 host=webserver01 cpu=0
-	str = fmt.Sprintf("%s %d %f", d.Name, d.Time, d.Value)
-	for k, v := range d.Tags {
-		str += fmt.Sprintf(" %v=%v", k, v)
-	}
-	str += fmt.Sprintf("\n")
-	return str
-}
-
-func (d *Metric) GoString() (str string) {
-	return fmt.Sprintf("%#v", d)
-}
-
-var DecodeTime time.Duration
-
-func Decode(ts int64, data []byte) (metrics []*Metric, err error) {
-	defer func(data []byte) {
+func Decode(ts int64, data []byte) (metrics []string, err error) {
+	defer func() {
 		if r := recover(); r != nil {
 			err = r.(error)
-			// fmt.Printf("Recovered from '%v'\n", r)
-			// fmt.Println("\n-----\n")
-			// fmt.Printf("var data = %#v \n", data)
-			// fmt.Println("\n-----\n")
 		}
-	}(data)
-
-	start := time.Now()
+	}()
 
 	request := &Request{}
 	proto.Unmarshal(data, request)
 
 	if !request.Valid() {
-		// fmt.Println("\n---invalid data---")
-		// fmt.Printf("var data = %#v \n", data)
-		// fmt.Println("-----\n")
-		return nil, fmt.Errorf("request is invalid")
+        return nil, fmt.Errorf("request is invalid")
 	}
 
-	tags := map[string]string{}
-	tags["host"] = *request.Hostname
-	tags["server"] = *request.ServerName
-	tags["script"] = *request.ScriptName
+	var tags string
+	tags += fmt.Sprintf("host=%s server=%s script=%s", *request.Hostname, *request.ServerName, *request.ScriptName)
 	if request.Status != nil {
-		tags["status"] = fmt.Sprintf("%d", *request.Status)
+		tags += fmt.Sprintf(" status=%d", *request.Status)
 	}
-
 	for idx, val := range request.TagValue {
-		tags[request.Dictionary[request.TagName[idx]]] = request.Dictionary[val]
+		tags += fmt.Sprintf(" %s=%s", request.Dictionary[request.TagName[idx]], request.Dictionary[val])
 	}
 
 	offset := 0
-	metric_idx := 0
-	metrics_cnt := len(request.TimerValue)*3 + 3
-	metrics = make([]*Metric, metrics_cnt)
-
+	metrics = make([]string, len(request.TimerValue)+1)
 	for idx, val := range request.TimerValue {
-		timer_tags := map[string]string{}
-		for k, v := range tags {
-			timer_tags[k] = v
-		}
-
+		timer_tags := tags
 		for k, key_idx := range request.TimerTagName[offset : offset+int(request.TimerTagCount[idx])] {
 			val_idx := request.TimerTagValue[int(offset)+k]
 			if val_idx >= uint32(len(request.Dictionary)) || key_idx >= uint32(len(request.Dictionary)) {
 				continue
 			}
-			timer_tags[request.Dictionary[key_idx]] = request.Dictionary[val_idx]
+			timer_tags += fmt.Sprintf(" %s=%v", request.Dictionary[key_idx], request.Dictionary[val_idx])
 		}
 
-		metrics[metric_idx] = &Metric{
-			Time:  ts,
-			Name:  "timers.time",
-			Value: val,
-			Tags:  timer_tags,
-		}
-		metric_idx++
-		metrics[metric_idx] = &Metric{
-			Time:  ts,
-			Name:  "timers.cnt",
-			Value: float32(request.TimerHitCount[idx]),
-			Tags:  timer_tags,
-		}
-		metric_idx++
-		metrics[metric_idx] = &Metric{
-			Time:  ts,
-			Name:  "timers.cpu",
-			Value: request.TimerUtime[idx] + request.TimerStime[idx],
-			Tags:  timer_tags,
-		}
-		metric_idx++
+		metrics[idx] = fmt.Sprintf("timer %d %f %d %f %s\n", ts, val, request.TimerHitCount[idx], request.TimerUtime[idx]+request.TimerStime[idx], timer_tags)
 		offset += int(request.TimerTagCount[idx])
 	}
-
-	metrics[metric_idx] = &Metric{
-		Time:  ts,
-		Name:  "php.time",
-		Value: *request.RequestTime,
-		Tags:  tags,
-	}
-	metric_idx++
-	metrics[metric_idx] = &Metric{
-		Time:  ts,
-		Name:  "php.cpu",
-		Value: *request.RuUtime + *request.RuStime,
-		Tags:  tags,
-	}
-	metric_idx++
-	metrics[metric_idx] = &Metric{
-		Time:  ts,
-		Name:  "php.cnt",
-		Value: 1,
-		Tags:  tags,
-	}
-
-	DecodeTime += time.Now().Sub(start)
+	metrics[len(metrics)-1] = fmt.Sprintf("request %d %f %d %f %s\n", ts, *request.RequestTime, 1, *request.RuUtime+*request.RuStime, tags)
 	return metrics, nil
 }

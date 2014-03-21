@@ -71,25 +71,26 @@ func (l *Listener) Run() {
 	ticker := time.NewTicker(time.Second)
 
 	go l.reciver(buffer)
-	var idle_time time.Duration
+	idle_since := time.Now()
 	for {
 		select {
 		case now := <-ticker.C:
 			if l.packets == 0 {
-				idle_time += time.Second
-				log.Printf("[Listener] No packets for %v!\n", idle_time)
+				log.Printf("[Listener] No packets for %.f sec (since %v)!\n",
+					time.Now().Sub(idle_since).Seconds(), idle_since.Format("15:04:05"))
 				continue
 			}
-			l.Out <- result
 
+			// Get what we recive for this second and send it to publisher
+			l.Out <- result
 			log.Printf("[Listener] Received %v: %d/%v (%v)\n", now.Unix(), l.packets, len(result), l.timer)
 			if l.timer > time.Second {
-				log.Printf("[Listener] Processing took more than 1 second (%v)!\n", l.timer)
+				log.Printf("[Listener] Decoding took too long: %v!\n", l.timer)
 			}
 
 			l.timer = 0
 			l.packets = 0
-			idle_time = 0
+			idle_since = now
 			result = make([]string, 0)
 		case data := <-buffer:
 			result = append(result, data)

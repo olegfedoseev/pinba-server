@@ -24,13 +24,11 @@ type Publisher struct {
 func NewPublisher(out_addr *string, inbound <-chan []string, gzip bool) (p *Publisher) {
 	addr, err := net.ResolveTCPAddr("tcp", *out_addr)
 	if err != nil {
-		log.Printf("[Publisher] Error on net.ResolveTCPAddr, %v", err) // TODO: log.Fatal
-		panic(err)
+		log.Fatalf("[Publisher] Can't resolve address: '%v'", err)
 	}
 	sock, err := net.ListenTCP("tcp", addr)
 	if err != nil {
-		log.Printf("[Publisher] Error on net.ListenTCP, %v", err)
-		panic(err)
+		log.Fatalf("[Publisher] Can't open TCP socket: '%v'", err)
 	}
 	log.Printf("[Publisher] Start listening on tcp://%v\n", *out_addr)
 

@@ -21,13 +21,11 @@ type Listener struct {
 func NewListener(in_addr *string, out chan<- []string) (l *Listener) {
 	addr, err := net.ResolveUDPAddr("udp4", *in_addr)
 	if err != nil {
-		log.Printf("[Listener] Error on net.ResolveUDPAddr, %v", err)
-		panic(err)
+		log.Fatalf("[Listener] Can't resolve address: '%v'", err)
 	}
 	sock, err := net.ListenUDP("udp4", addr)
 	if err != nil {
-		log.Printf("[Listener] Error on net.ListenUDP, %v", err)
-		panic(err)
+		log.Fatalf("[Listener] Can't open UDP socket: '%v'", err)
 	}
 	log.Printf("[Listener] Start listening on udp://%v\n", *in_addr)
 
@@ -44,8 +42,7 @@ func (l *Listener) reciver(buffer chan<- string) {
 		var buf = make([]byte, 65536)
 		rlen, _, err := l.Server.ReadFromUDP(buf)
 		if err != nil {
-			log.Printf("[Listener] Error on sock.ReadFrom, %v", err)
-			panic(err)
+			log.Fatalf("[Listener] Error on sock.ReadFrom, %v", err)
 		}
 		if rlen == 0 {
 			continue
@@ -56,7 +53,7 @@ func (l *Listener) reciver(buffer chan<- string) {
 			start := time.Now()
 			metrics, err := Decode(time.Now().Unix(), data)
 			if err != nil {
-				log.Printf("[Listener] Error decoding pb packet: %v", err)
+				log.Printf("[Listener] Error decoding protobuf packet: %v", err)
 				//log.Printf("var data = %#v \n", data)
 				return
 			}

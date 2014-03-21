@@ -68,19 +68,13 @@ func (l *Listener) Run() {
 
 	buffer := make(chan string, 1000)
 	result := make([]string, 0)
-
-	ticks := make(chan time.Time)
-	go func(ticks chan<- time.Time) {
-		for now := range time.Tick(time.Second) {
-			ticks <- now
-		}
-	}(ticks)
+	ticker := time.NewTicker(time.Second)
 
 	go l.reciver(buffer)
 	var idle_time time.Duration
 	for {
 		select {
-		case now := <-ticks:
+		case now := <-ticker.C:
 			if l.packets == 0 {
 				idle_time += time.Second
 				log.Printf("[Listener] No packets for %v!\n", idle_time)

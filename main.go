@@ -20,10 +20,12 @@ func main() {
 	log.Printf("Using %d/%d CPU\n", *cpu, runtime.NumCPU())
 	runtime.GOMAXPROCS(*cpu)
 
-	var messages = make(chan []string, 10)
-	listener := NewListener(in_addr, messages)
-	go listener.Run()
+	listener := NewListener(in_addr)
+	listener.Start()
 
-	publisher := NewPublisher(out_addr, messages, *gzip)
-	publisher.Run()
+	decoder := NewDecoder(listener.RawPackets, 1000)
+	decoder.Start()
+
+	publisher := NewPublisher(out_addr, decoder.Decoded, *gzip)
+	publisher.Start()
 }

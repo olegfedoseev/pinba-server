@@ -14,14 +14,14 @@ type client chan []byte
 
 type Publisher struct {
 	Server  *net.TCPListener
-	Inbound <-chan []string
-	Clients map[string]client
+	Data    chan string
+	clients map[string]client
 	gzip    bool
 	packets int
 	timer   time.Duration
 }
 
-func NewPublisher(out_addr *string, inbound <-chan []string, gzip bool) (p *Publisher) {
+func NewPublisher(out_addr *string, data chan string, gzip bool) (p *Publisher) {
 	addr, err := net.ResolveTCPAddr("tcp", *out_addr)
 	if err != nil {
 		log.Fatalf("[Publisher] Can't resolve address: '%v'", err)
@@ -35,8 +35,8 @@ func NewPublisher(out_addr *string, inbound <-chan []string, gzip bool) (p *Publ
 	clients := make(map[string]client, 0)
 	p = &Publisher{
 		Server:  sock,
-		Inbound: inbound,
-		Clients: clients,
+		Data:    data,
+		clients: clients,
 		gzip:    gzip,
 	}
 	return p
@@ -52,16 +52,16 @@ func (p *Publisher) sender() {
 		}
 
 		addr := fmt.Sprintf("%v", conn.RemoteAddr())
-		p.Clients[addr] = make(chan []byte)
+		p.clients[addr] = make(chan []byte) // http://golang.org/doc/faq#atomic_maps
 		log.Printf("[Publisher] Look's like we got customer! He's from %v\n", addr)
 
 		// Handle the connection in a new goroutine.
 		go func(c net.Conn) {
 			defer c.Close()
 			for {
-				if _, err := c.Write(<-p.Clients[addr]); err != nil {
+				if _, err := c.Write(<-p.clients[addr]); err != nil {
 					log.Printf("[Publisher] net.Conn.Write got error: '%v', closing connection.\n", err)
-					delete(p.Clients, addr)
+					delete(p.clients, addr)
 					log.Printf("[Publisher] Good bye %v!", addr)
 					return
 				}
@@ -70,36 +70,54 @@ func (p *Publisher) sender() {
 	}
 }
 
-func (p *Publisher) Run() {
+func (p *Publisher) Start() {
 	go p.sender()
 
+	buffer := make([]string, 0)
+	idle_since := time.Now()
+	ticker := time.NewTicker(time.Second)
 	for {
-		data := <-p.Inbound
-		if len(data) == 0 {
-			log.Printf("[Publisher] Nothing to send!\n")
-			continue
-		}
-		if len(p.Clients) == 0 {
-			log.Printf("[Publisher] No clients to send to!\n")
-			continue
-		}
+		select {
+		case now := <-ticker.C:
+			if len(buffer) == 0 {
+				log.Printf("[Publisher] No packets for %.f sec (since %v)!\n",
+					time.Now().Sub(idle_since).Seconds(), idle_since.Format("15:04:05"))
+				continue
+			}
+			idle_since = now
+			log.Printf("[Publisher] Received %v: %d\n", now.Unix(), len(buffer))
 
-		start := time.Now()
-		var result []byte
-		if p.gzip {
-			var b bytes.Buffer
-			w := zlib.NewWriter(&b)
-			w.Write([]byte(strings.Join(data, "")))
-			w.Close()
-			result = b.Bytes()
-		} else {
-			result = []byte(strings.Join(data, ""))
-		}
+			if len(p.clients) == 0 {
+				log.Printf("[Publisher] No clients to send to!\n")
+				buffer = make([]string, 0)
+				continue
+			}
 
-		for _, c := range p.Clients {
-			c <- result
+			start := time.Now()
+			var result []byte
+			if p.gzip {
+				var b bytes.Buffer
+				w := zlib.NewWriter(&b)
+				w.Write([]byte(strings.Join(buffer, "")))
+				w.Close()
+				result = b.Bytes()
+			} else {
+				result = []byte(strings.Join(buffer, ""))
+			}
+
+			for _, c := range p.clients {
+				c <- result
+			}
+			timer := time.Now().Sub(start)
+			log.Printf("[Publisher] Send %v bytes in %v\n", len(buffer), timer)
+
+			//l.timer = 0
+
+			buffer = make([]string, 0)
+
+		// Read from channel of decoded packets
+		case data := <-p.Data:
+			buffer = append(buffer, data)
 		}
-		timer := time.Now().Sub(start)
-		log.Printf("[Publisher] Send %v bytes in %v\n", len(result), timer)
 	}
 }

@@ -24,15 +24,15 @@ type Publisher struct {
 func NewPublisher(out_addr *string, inbound <-chan []string, gzip bool) (p *Publisher) {
 	addr, err := net.ResolveTCPAddr("tcp", *out_addr)
 	if err != nil {
-		log.Printf("Error on net.ResolveTCPAddr, %v", err)
+		log.Printf("[Publisher] Error on net.ResolveTCPAddr, %v", err) // TODO: log.Fatal
 		panic(err)
 	}
 	sock, err := net.ListenTCP("tcp", addr)
 	if err != nil {
-		log.Printf("Error on net.ListenTCP, %v", err)
+		log.Printf("[Publisher] Error on net.ListenTCP, %v", err)
 		panic(err)
 	}
-	log.Printf("Start listening on tcp://%v\n", *out_addr)
+	log.Printf("[Publisher] Start listening on tcp://%v\n", *out_addr)
 
 	clients := make(map[string]client, 0)
 	p = &Publisher{
@@ -55,16 +55,16 @@ func (p *Publisher) sender() {
 
 		addr := fmt.Sprintf("%v", conn.RemoteAddr())
 		p.Clients[addr] = make(chan []byte)
-		log.Printf("Look's like we got customer! He's from %v\n", addr)
+		log.Printf("[Publisher] Look's like we got customer! He's from %v\n", addr)
 
 		// Handle the connection in a new goroutine.
 		go func(c net.Conn) {
 			defer c.Close()
 			for {
 				if _, err := c.Write(<-p.Clients[addr]); err != nil {
-					log.Printf("net.Conn.Write got error: '%v', closing connection.\n", err)
+					log.Printf("[Publisher] net.Conn.Write got error: '%v', closing connection.\n", err)
 					delete(p.Clients, addr)
-					log.Printf("Good bye %v!", addr)
+					log.Printf("[Publisher] Good bye %v!", addr)
 					return
 				}
 			}
@@ -78,11 +78,11 @@ func (p *Publisher) Run() {
 	for {
 		data := <-p.Inbound
 		if len(data) == 0 {
-			log.Printf("Nothing to send!\n")
+			log.Printf("[Publisher] Nothing to send!\n")
 			continue
 		}
 		if len(p.Clients) == 0 {
-			log.Printf("No clients to send to!\n")
+			log.Printf("[Publisher] No clients to send to!\n")
 			continue
 		}
 
@@ -102,6 +102,6 @@ func (p *Publisher) Run() {
 			c <- result
 		}
 		timer := time.Now().Sub(start)
-		log.Printf("Send %v bytes in %v\n", len(result), timer)
+		log.Printf("[Publisher] Send %v bytes in %v\n", len(result), timer)
 	}
 }

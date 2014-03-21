@@ -21,15 +21,15 @@ type Listener struct {
 func NewListener(in_addr *string, out chan<- []string) (l *Listener) {
 	addr, err := net.ResolveUDPAddr("udp4", *in_addr)
 	if err != nil {
-		log.Printf("Error on net.ResolveUDPAddr, %v", err)
+		log.Printf("[Listener] Error on net.ResolveUDPAddr, %v", err)
 		panic(err)
 	}
 	sock, err := net.ListenUDP("udp4", addr)
 	if err != nil {
-		log.Printf("Error on net.ListenUDP, %v", err)
+		log.Printf("[Listener] Error on net.ListenUDP, %v", err)
 		panic(err)
 	}
-	log.Printf("Start listening on udp://%v\n", *in_addr)
+	log.Printf("[Listener] Start listening on udp://%v\n", *in_addr)
 
 	l = &Listener{
 		Server: sock,
@@ -44,7 +44,7 @@ func (l *Listener) reciver(buffer chan<- string) {
 		var buf = make([]byte, 65536)
 		rlen, _, err := l.Server.ReadFromUDP(buf)
 		if err != nil {
-			log.Printf("Error on sock.ReadFrom, %v", err)
+			log.Printf("[Listener] Error on sock.ReadFrom, %v", err)
 			panic(err)
 		}
 		if rlen == 0 {
@@ -56,7 +56,7 @@ func (l *Listener) reciver(buffer chan<- string) {
 			start := time.Now()
 			metrics, err := Decode(time.Now().Unix(), data)
 			if err != nil {
-				log.Printf("Error decoding pb packet: %v", err)
+				log.Printf("[Listener] Error decoding pb packet: %v", err)
 				//log.Printf("var data = %#v \n", data)
 				return
 			}
@@ -80,23 +80,25 @@ func (l *Listener) Run() {
 	}(ticks)
 
 	go l.reciver(buffer)
-
+	var idle_time time.Duration
 	for {
 		select {
 		case now := <-ticks:
 			if l.packets == 0 {
-				log.Printf("No packets for 1 second!\n")
+				idle_time += time.Second
+				log.Printf("[Listener] No packets for %v!\n", idle_time)
 				continue
 			}
 			l.Out <- result
 
-			log.Printf("Received %v: %d/%v (%v)\n", now.Unix(), l.packets, len(result), l.timer)
+			log.Printf("[Listener] Received %v: %d/%v (%v)\n", now.Unix(), l.packets, len(result), l.timer)
 			if l.timer > time.Second {
-				log.Printf("Processing took more than 1 second (%v)!\n", l.timer)
+				log.Printf("[Listener] Processing took more than 1 second (%v)!\n", l.timer)
 			}
 
 			l.timer = 0
 			l.packets = 0
+			idle_time = 0
 			result = make([]string, 0)
 		case data := <-buffer:
 			result = append(result, data)

@@ -23,7 +23,7 @@ func main() {
 	listener := NewListener(in_addr)
 	listener.Start()
 
-	decoder := NewDecoder(listener.RawPackets, 1000)
+	decoder := NewDecoder(listener.RawPackets, *cpu)
 	decoder.Start()
 
 	publisher := NewPublisher(out_addr, decoder.Decoded, *gzip)

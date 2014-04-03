@@ -2,26 +2,25 @@ package main
 
 import (
 	"log"
-	"strings"
 	"time"
 )
 
 type Decoder struct {
 	Raw     chan RawData
-	Decoded chan string
+	Decoded chan []string
 	timers  chan time.Duration
 }
 
 type Worker struct {
 	Data   chan RawData
-	Result chan<- string
+	Result chan<- []string
 	Timer  chan<- time.Duration
 }
 
 func NewDecoder(raw chan RawData, workers int) *Decoder {
 	decoder := &Decoder{
 		Raw:     raw,
-		Decoded: make(chan string, 100),
+		Decoded: make(chan []string, 100),
 		timers:  make(chan time.Duration, 100),
 	}
 	for i := 0; i < workers; i++ {
@@ -32,7 +31,7 @@ func NewDecoder(raw chan RawData, workers int) *Decoder {
 
 func (d *Decoder) NewWorker() {
 	worker := &Worker{
-		Data: d.Raw,
+		Data:   d.Raw,
 		Result: d.Decoded,
 		Timer:  d.timers,
 	}
@@ -48,14 +47,13 @@ func (d *Decoder) NewWorker() {
 					return
 				}
 
-				worker.Result <- strings.Join(metrics, "")
+				worker.Result <- metrics
 				worker.Timer <- time.Now().Sub(start)
 			}
 		}
 	}()
 }
 
-// queue chan RawData, ndecoders int
 func (d *Decoder) Start() {
 	go func() {
 		var decoding_time time.Duration

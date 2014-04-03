@@ -10,7 +10,6 @@ var (
 	in_addr  = flag.String("in", "", "incoming socket")
 	out_addr = flag.String("out", "", "outcoming socket")
 	cpu      = flag.Int("cpu", 1, "how much cores to use")
-	gzip     = flag.Bool("gzip", false, "use gzip to compress outbound data")
 )
 
 func main() {
@@ -26,6 +25,6 @@ func main() {
 	decoder := NewDecoder(listener.RawPackets, *cpu)
 	decoder.Start()
 
-	publisher := NewPublisher(out_addr, decoder.Decoded, *gzip)
+	publisher := NewPublisher(out_addr, decoder.Decoded)
 	publisher.Start()
 }

@@ -86,9 +86,9 @@ func Decode(ts int64, data []byte) (metrics []string, err error) {
 			timer_tags += fmt.Sprintf(" %s=%v", request.Dictionary[key_idx], request.Dictionary[val_idx])
 		}
 
-		metrics[idx] = fmt.Sprintf("timer %d %f %d %f %s\n", ts, val, request.TimerHitCount[idx], request.TimerUtime[idx]+request.TimerStime[idx], timer_tags)
+		metrics[idx] = fmt.Sprintf("timer %d %f %d %f %s", ts, val, request.TimerHitCount[idx], request.TimerUtime[idx]+request.TimerStime[idx], timer_tags)
 		offset += int(request.TimerTagCount[idx])
 	}
-	metrics[len(metrics)-1] = fmt.Sprintf("request %d %f %d %f %s\n", ts, *request.RequestTime, 1, *request.RuUtime+*request.RuStime, tags)
+	metrics[len(metrics)-1] = fmt.Sprintf("request %d %f %d %f %s", ts, *request.RequestTime, 1, *request.RuUtime+*request.RuStime, tags)
 	return metrics, nil
 }

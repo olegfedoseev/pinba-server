@@ -1,10 +1,10 @@
 package main
 
 import (
+	"encoding/gob"
 	"fmt"
 	"log"
 	"net"
-	"encoding/gob"
 	"time"
 )
 

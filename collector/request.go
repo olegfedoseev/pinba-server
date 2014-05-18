@@ -3,6 +3,8 @@ package main
 import (
 	"code.google.com/p/goprotobuf/proto"
 	"fmt"
+	"sort"
+	"strings"
 )
 
 type Request struct {
@@ -65,14 +67,17 @@ func Decode(ts int64, data []byte) (metrics []string, err error) {
 		return nil, fmt.Errorf("request is invalid")
 	}
 
-	var tags string
-	tags += fmt.Sprintf("host=%s server=%s script=%s", *request.Hostname, *request.ServerName, *request.ScriptName)
+	var tags []string
+	tags = append(tags, fmt.Sprintf("host=%s", *request.Hostname))
+	tags = append(tags, fmt.Sprintf("server=%s", *request.ServerName))
+	tags = append(tags, fmt.Sprintf("script=%s", *request.ScriptName))
 	if request.Status != nil {
-		tags += fmt.Sprintf(" status=%d", *request.Status)
+		tags = append(tags, fmt.Sprintf("status=%d", *request.Status))
 	}
 	for idx, val := range request.TagValue {
-		tags += fmt.Sprintf(" %s=%s", request.Dictionary[request.TagName[idx]], request.Dictionary[val])
+		tags = append(tags, fmt.Sprintf("%s=%s", request.Dictionary[request.TagName[idx]], request.Dictionary[val]))
 	}
+	sort.Strings(tags)
 
 	offset := 0
 	metrics = make([]string, len(request.TimerValue)+1)
@@ -83,12 +88,14 @@ func Decode(ts int64, data []byte) (metrics []string, err error) {
 			if val_idx >= uint32(len(request.Dictionary)) || key_idx >= uint32(len(request.Dictionary)) {
 				continue
 			}
-			timer_tags += fmt.Sprintf(" %s=%v", request.Dictionary[key_idx], request.Dictionary[val_idx])
+			timer_tags = append(timer_tags, fmt.Sprintf("%s=%v", request.Dictionary[key_idx], request.Dictionary[val_idx]))
 		}
-
-		metrics[idx] = fmt.Sprintf("timer %d %f %d %f %s", ts, val, request.TimerHitCount[idx], request.TimerUtime[idx]+request.TimerStime[idx], timer_tags)
+		sort.Strings(timer_tags)
+		metrics[idx] = fmt.Sprintf("timer %d %f %d %f %s", ts, val,
+			request.TimerHitCount[idx], request.TimerUtime[idx]+request.TimerStime[idx], strings.Join(timer_tags, " "))
 		offset += int(request.TimerTagCount[idx])
 	}
-	metrics[len(metrics)-1] = fmt.Sprintf("request %d %f %d %f %s", ts, *request.RequestTime, 1, *request.RuUtime+*request.RuStime, tags)
+	metrics[len(metrics)-1] = fmt.Sprintf("request %d %f %d %f %s", ts,
+		*request.RequestTime, 1, *request.RuUtime+*request.RuStime, strings.Join(tags, " "))
 	return metrics, nil
 }

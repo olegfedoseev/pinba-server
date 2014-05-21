@@ -20,9 +20,11 @@ func main() {
 	runtime.GOMAXPROCS(*cpu)
 
 	listener := NewListener(in_addr)
-	listener.Start()
+	rawdata, legacy := listener.Start()
 
-	decoder := NewDecoder(listener.RawPackets, *cpu)
+	go LegacySender(legacy)
+
+	decoder := NewDecoder(rawdata, *cpu)
 	decoder.Start()
 
 	publisher := NewPublisher(out_addr, decoder.Decoded)

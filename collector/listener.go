@@ -27,15 +27,13 @@ func NewListener(in_addr *string) (l *Listener) {
 	}
 	log.Printf("[Listener] Start listening on udp://%v\n", *in_addr)
 
-	l = &Listener{
-		server:     sock,
-		RawPackets: make(chan RawData, 100),
-	}
-	return l
+	return &Listener{server: sock}
 }
 
-func (l *Listener) Start() {
-	go func() {
+func (l *Listener) Start() (chan RawData, chan []byte) {
+	result := make(chan RawData, 100)
+	legacy := make(chan []byte, 100)
+	go func(result chan RawData, legacy chan[] byte) {
 		defer l.server.Close()
 		for {
 			var buf = make([]byte, 65536)
@@ -46,7 +44,9 @@ func (l *Listener) Start() {
 			if rlen == 0 {
 				continue
 			}
-			l.RawPackets <- RawData{Data: buf[0:rlen], Timestamp: time.Now()}
+			legacy <- buf[0:rlen]
+			result <- RawData{Data: buf[0:rlen], Timestamp: time.Now()}
 		}
-	}()
+	}(result, legacy)
+	return result, legacy
 }

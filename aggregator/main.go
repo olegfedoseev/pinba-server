@@ -10,44 +10,52 @@ import (
 	"flag"
 	"log"
 	"runtime"
-	"net"
-	"encoding/gob"
+	"time"
 )
 
 var (
-	in_addr  = flag.String("in", "", "incoming socket")
-	out_addr = flag.String("out", "", "outcoming socket")
-	cpu      = flag.Int("cpu", 1, "how much cores to use")
-	gzip     = flag.Bool("gzip", false, "use gzip to compress outbound data")
+	in_addr     = flag.String("in", "", "incoming socket")
+	kairosdb_addr = flag.String("kairosdb", "", "address of kairosdb instance")
+	influxdb_addr = flag.String("influxdb", "", "address of influxdb instance")
+
+	cpu         = flag.Int("cpu", 1, "how much cores to use")
+	interval    = flag.Int("interval", 1, "interval of aggregation in seconds")
 )
 
 func main() {
 	flag.Parse()
 
-	log.Printf("Pinba aggregator reading from %s and sending to %s\n", *in_addr, *out_addr)
+	log.Printf("Pinba aggregator reading from %s\n", *in_addr)
 	log.Printf("Using %d/%d CPU\n", *cpu, runtime.NumCPU())
 	runtime.GOMAXPROCS(*cpu)
 
-	addr, err := net.ResolveTCPAddr("tcp4", *in_addr)
-	if err != nil {
-		log.Fatalf("[Publisher] ResolveTCPAddr: '%v'", err)
+	if *kairosdb_addr == "" &&  *influxdb_addr == "" {
+		log.Fatal("No writer specified!\n")
+	}
+	if *kairosdb_addr != "" &&  *influxdb_addr != "" {
+		log.Fatal("You can't use both writers!\n")
 	}
 
-	conn, err := net.DialTCP("tcp", nil, addr)
-	if err != nil {
-		log.Fatalf("[Publisher] DialTCP: '%v'", err)
-	}
-	conn.SetKeepAlive(true)
-	dec := gob.NewDecoder(conn)
+	ts := time.Now().Unix()
+	wait := ts - ts%int64(*interval) + int64(*interval) - ts
+	log.Printf("[Aggregator] Starting after %vsec", wait)
+	time.Sleep(time.Duration(wait) * time.Second)
 
-	for {
-		var data = make([]string, 0)
-		err := dec.Decode(&data)
-		if err != nil {
-			log.Printf("err: %v", err)
-		}
-		if len(data) > 0 {
-			log.Printf("len: %v", len(data))
-		}
+	listener := NewListener(in_addr)
+	go listener.Start()
+
+	aggregator := NewAggregator(listener.RawMetrics)
+	go aggregator.Start(int64(*interval))
+
+	if *kairosdb_addr != "" {
+		log.Printf("Writing to KairosDB at %s\n", *kairosdb_addr)
+		writer := NewKairosWriter(kairosdb_addr, aggregator.Metrics)
+		writer.Start()
+	}
+
+	if *influxdb_addr != "" {
+		log.Printf("Writing to InfluxDB at %s\n", *influxdb_addr)
+		writer := NewInfluxWriter(influxdb_addr, aggregator.Metrics)
+		writer.Start()
 	}
 }

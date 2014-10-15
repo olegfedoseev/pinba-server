@@ -28,6 +28,9 @@ var (
 	server_name = flag.String("server", "", "server")
 	hostname    = flag.String("hostname", "", "hostname")
 	script_name = flag.String("script_name", "", "script_name")
+
+	requests = flag.Bool("requests", true, "show requests")
+	timers = flag.Bool("timers", false, "show timers")
 )
 
 // dumper --in=tcp://172.16.5.130:5003 --server=example.com
@@ -106,12 +109,22 @@ func main() {
 			if script_name != nil && !strings.Contains(request.Tags, fmt.Sprintf("script=%s", *script_name)) {
 				continue
 			}
+
+			if *requests && request.Name != "request" {
+				continue
+			}
+
+			if *timers && request.Name != "timer" {
+				continue
+			}
+
 			fmt.Printf("Request %s\n", request.Name)
 			fmt.Printf("Timestamp %d\n", request.Timestamp)
 			fmt.Printf("Tags %s\n", request.Tags)
 			fmt.Printf("Value %3.4f\n", request.Value)
 			fmt.Printf("Count %d\n", request.Count)
 			fmt.Printf("Cpu %3.4f\n", request.Cpu)
+			fmt.Printf("\n")
 		}
 	}
 }

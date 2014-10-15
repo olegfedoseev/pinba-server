@@ -48,7 +48,7 @@ func (p *Publisher) sender() {
 		}
 
 		addr := fmt.Sprintf("%v", conn.RemoteAddr())
-		p.clients[addr] = make(chan []string)
+		p.clients[addr] = make(chan []string, 10000)
 		log.Printf("[Publisher] Look's like we got customer! He's from %v\n", addr)
 
 		// Handle the connection in a new goroutine.
@@ -64,7 +64,6 @@ func (p *Publisher) sender() {
 					log.Printf("[Publisher] Good bye %v!", addr)
 					return
 				}
-				log.Printf("[Publisher] Send %d to %v\n", len(data), addr)
 			}
 		}(conn)
 	}
@@ -86,7 +85,6 @@ func (p *Publisher) Start() {
 				continue
 			}
 			idle_since = now
-			log.Printf("[Publisher] Received %v: %d\n", now.Unix(), len(buffer))
 
 			if len(p.clients) == 0 {
 				log.Printf("[Publisher] No clients to send to!\n")
@@ -94,10 +92,11 @@ func (p *Publisher) Start() {
 				continue
 			}
 
+			t := time.Now()
 			for _, c := range p.clients {
 				c <- buffer
 			}
-			log.Printf("[Publisher] Send %d packets\n", len(buffer))
+			log.Printf("[Publisher] Send %d packets to %d clients in %v\n", len(buffer), len(p.clients), time.Now().Sub(t))
 			buffer = make([]string, 0)
 
 		// Read from channel of decoded packets

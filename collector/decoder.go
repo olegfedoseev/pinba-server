@@ -19,7 +19,7 @@ type Worker struct {
 
 func NewDecoder(raw chan RawData, workers int) *Decoder {
 	decoder := &Decoder{
-		Raw:     raw,
+		Raw:     raw, // RawPackets from listener
 		Decoded: make(chan []string, 100),
 		timers:  make(chan time.Duration, 100),
 	}
@@ -43,7 +43,6 @@ func (d *Decoder) NewWorker() {
 				metrics, err := Decode(data.Timestamp.Unix(), data.Data)
 				if err != nil {
 					log.Printf("[Decoder] Error decoding protobuf packet: %v", err)
-					//log.Printf("var data = %#v \n", data)
 					return
 				}
 
@@ -62,7 +61,7 @@ func (d *Decoder) Start() {
 		for {
 			select {
 			case <-ticker.C:
-				log.Printf("Packets: %d (in %v cpu time)", decoded_count, decoding_time)
+				log.Printf("[Decoder] Packets: %d (in %v cpu time)", decoded_count, decoding_time)
 				decoded_count = 0
 				decoding_time = 0
 			case t := <-d.timers:

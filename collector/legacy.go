@@ -28,13 +28,15 @@ func LegacySender(data chan []byte) {
 	for {
 		select {
 		case now := <-ticker.C:
-			log.Printf("[Legacy] %v requests, %v bytes \n", counter, len(buffer.Bytes()))
+
 			if counter > 0 {
+				t := time.Now()
 				var b bytes.Buffer
 				w := zlib.NewWriter(&b)
 				w.Write(buffer.Bytes()[:len(buffer.Bytes())-4])
 				w.Close()
 				publisher.Send([]byte(fmt.Sprintf("%d\n%s", now.Unix(), b.Bytes())), 0)
+				log.Printf("[Legacy] %v requests, %v bytes in %v\n", counter, len(buffer.Bytes()), time.Since(t))
 			}
 			buffer = *bytes.NewBuffer([]byte{})
 			counter = 0

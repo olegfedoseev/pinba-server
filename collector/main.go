@@ -9,6 +9,7 @@ import (
 var (
 	in_addr  = flag.String("in", "", "incoming socket")
 	out_addr = flag.String("out", "", "outcoming socket")
+	legacy = flag.Bool("legacy", false, "enable legacy socket")
 	cpu      = flag.Int("cpu", 1, "how much cores to use")
 )
 
@@ -21,6 +22,10 @@ func main() {
 
 	listener := NewListener(in_addr)
 	listener.Start()
+
+	if *legacy {
+		go LegacySender(listener.LegacyData)
+	}
 
 	decoder := NewDecoder(listener.RawPackets, *cpu)
 	decoder.Start()

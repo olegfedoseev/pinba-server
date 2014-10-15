@@ -1,7 +1,6 @@
-package main
+package metrics
 
 import (
-	//	"log"
 	"math"
 	"sort"
 	"time"

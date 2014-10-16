@@ -42,7 +42,7 @@ func (p *Publisher) sender() {
 	defer p.Server.Close()
 	for {
 		// Wait for a connection.
-		conn, err := p.Server.Accept()
+		conn, err := p.Server.AcceptTCP()
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -52,18 +52,22 @@ func (p *Publisher) sender() {
 		log.Printf("[Publisher] Look's like we got customer! He's from %v\n", addr)
 
 		// Handle the connection in a new goroutine.
-		go func(c net.Conn) {
+		go func(c *net.TCPConn) {
 			defer c.Close()
+			c.SetNoDelay(false)
+
 			enc := gob.NewEncoder(c)
 			for {
 				data := <-p.clients[addr]
+				t := time.Now()
 				err := enc.Encode(data)
 				if err != nil {
 					log.Printf("[Publisher] Encode got error: '%v', closing connection.\n", err)
 					delete(p.clients, addr)
 					log.Printf("[Publisher] Good bye %v!", addr)
-					return
+					break
 				}
+				log.Printf("[Publisher] Encoded in %v!", time.Since(t))
 			}
 		}(conn)
 	}

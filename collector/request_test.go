@@ -30,7 +30,7 @@ func TestConvertToString(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, len(metrics), 33)
 	for idx, t := range metrics {
-		fmt.Printf("#%d: %s", idx, t)
+		fmt.Printf("#%d: %s\n", idx, t)
 	}
 }
 

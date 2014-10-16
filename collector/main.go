@@ -1,17 +1,17 @@
 package main
 
 import (
-	"net/http"
-	_ "net/http/pprof"
 	"flag"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"runtime"
 )
 
 var (
 	in_addr  = flag.String("in", "", "incoming socket")
 	out_addr = flag.String("out", "", "outcoming socket")
-	legacy = flag.Bool("legacy", false, "enable legacy socket")
+	legacy   = flag.Bool("legacy", false, "enable legacy socket")
 	cpu      = flag.Int("cpu", 1, "how much cores to use")
 )
 

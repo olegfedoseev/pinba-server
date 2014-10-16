@@ -96,8 +96,15 @@ func (p *Publisher) Start() {
 			for _, c := range p.clients {
 				c <- buffer
 			}
-			log.Printf("[Publisher] Send %d packets to %d clients in %v\n", len(buffer), len(p.clients), time.Now().Sub(t))
+			log.Printf("[Publisher] Send %d packets to %d clients in %v\n", len(buffer), len(p.clients), time.Since(t))
+			stats := []string{
+				fmt.Sprintf("pinba.collector.publisher.time %d %3.4f 0 0.0", t.Unix(), float32(time.Since(t).Seconds())),
+				fmt.Sprintf("pinba.collector.publisher.sent %d %d 0 0.0", t.Unix(), len(buffer)),
+				fmt.Sprintf("pinba.collector.publisher.clients %d %d 0 0.0", t.Unix(), len(p.clients)),
+				fmt.Sprintf("pinba.collector.publisher.queue %d %d 0 0.0", t.Unix(), len(p.Data)),
+			}
 			buffer = make([]string, 0)
+			buffer = append(buffer, stats...)
 
 		// Read from channel of decoded packets
 		case data := <-p.Data:

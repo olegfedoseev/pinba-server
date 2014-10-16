@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"fmt"
 	"time"
 )
 
@@ -62,6 +63,13 @@ func (d *Decoder) Start() {
 			select {
 			case <-ticker.C:
 				log.Printf("[Decoder] Packets: %d (in %v cpu time)", decoded_count, decoding_time)
+				// Append stats for self monitoring
+				d.Decoded <- []string{
+					fmt.Sprintf("pinba.collector.decoder.time %d %3.4f 0 0.0", time.Now().Unix(), decoding_time.Seconds()),
+					fmt.Sprintf("pinba.collector.decoder.decoded %d %d 0 0.0", time.Now().Unix(), decoded_count),
+					fmt.Sprintf("pinba.collector.decoder.in_queue %d %d 0 0.0", time.Now().Unix(), len(d.Raw)),
+					fmt.Sprintf("pinba.collector.decoder.out_queue %d %d 0 0.0", time.Now().Unix(), len(d.Decoded)),
+				}
 				decoded_count = 0
 				decoding_time = 0
 			case t := <-d.timers:

@@ -78,17 +78,22 @@ func (l *Listener) Start() {
 				log.Printf("[Listener] Error on ParseFloat: %v", err)
 			}
 
+			tags := ""
+			if len(metric) >= 6 {
+				tags = metric[5]
+			}
+
 			buffer[idx] = &RawMetric{
 				Name:      strings.TrimRight(strings.TrimSpace(metric[0]), " "),
 				Timestamp: ts,
 				Value:     val,
 				Count:     cnt,
 				Cpu:       cpu,
-				Tags:      metric[5],
+				Tags:      tags,
 			}
 		}
 
-		log.Printf("[Listener] Recive %d metrics in %v", len(buffer), time.Now().Sub(start))
+		log.Printf("[Listener] Recive %d metrics in %v", len(buffer), time.Since(start))
 		l.RawMetrics <- buffer
 	}
 }

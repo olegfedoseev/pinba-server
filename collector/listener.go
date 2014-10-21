@@ -3,18 +3,11 @@ package main
 import (
 	"log"
 	"net"
-	"time"
 )
 
 type Listener struct {
-	RawPackets chan RawData
-	LegacyData chan []byte
-	server     *net.UDPConn
-}
-
-type RawData struct {
-	Data      []byte
-	Timestamp time.Time
+	Data   chan []byte
+	server *net.UDPConn
 }
 
 func NewListener(in_addr *string) (l *Listener) {
@@ -29,9 +22,8 @@ func NewListener(in_addr *string) (l *Listener) {
 	log.Printf("[Listener] Start listening on udp://%v\n", *in_addr)
 
 	l = &Listener{
-		server:     sock,
-		RawPackets: make(chan RawData, 10000),
-		LegacyData: make(chan []byte, 10000),
+		server: sock,
+		Data:   make(chan []byte, 10000),
 	}
 	return l
 }
@@ -48,8 +40,7 @@ func (l *Listener) Start() {
 			if rlen == 0 {
 				continue
 			}
-			l.LegacyData <- buf[0:rlen]
-			l.RawPackets <- RawData{Data: buf[0:rlen], Timestamp: time.Now()}
+			l.Data <- buf[0:rlen]
 		}
 	}()
 }

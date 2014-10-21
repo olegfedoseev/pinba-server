@@ -17,7 +17,7 @@ var (
 func main() {
 	flag.Parse()
 
-	log.Printf("Pinba collector listening on %s and send to %s\n", *in_addr, *out_addr)
+	log.Printf("Pinba server listening on %s and send to %s\n", *in_addr, *out_addr)
 	log.Printf("Using %d/%d CPU\n", *cpu, runtime.NumCPU())
 	runtime.GOMAXPROCS(*cpu)
 
@@ -26,8 +26,7 @@ func main() {
 	}()
 
 	listener := NewListener(in_addr)
-	listener.Start()
+	go listener.Start()
 
-	publisher := NewPublisher(out_addr, listener.Data)
-	publisher.Start()
+	LegacySender(listener.RawData)
 }

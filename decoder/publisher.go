@@ -1,26 +1,24 @@
 package main
 
 import (
-	"bytes"
-	"compress/zlib"
-	"encoding/binary"
+	"encoding/gob"
 	"fmt"
 	"log"
 	"net"
 	"time"
 )
 
-type client chan []byte
+type client chan []string
 
 type Publisher struct {
 	Server  *net.TCPListener
-	Data    chan []byte
+	Data    chan []string
 	clients map[string]client
 	packets int
 	timer   time.Duration
 }
 
-func NewPublisher(out_addr *string, data chan []byte) (p *Publisher) {
+func NewPublisher(out_addr *string, data chan []string) (p *Publisher) {
 	addr, err := net.ResolveTCPAddr("tcp", *out_addr)
 	if err != nil {
 		log.Fatalf("[Publisher] Can't resolve address: '%v'", err)
@@ -50,7 +48,7 @@ func (p *Publisher) sender() {
 		}
 
 		addr := fmt.Sprintf("%v", conn.RemoteAddr())
-		p.clients[addr] = make(chan []byte, 10)
+		p.clients[addr] = make(chan []string, 10000)
 		log.Printf("[Publisher] Look's like we got customer! He's from %v\n", addr)
 
 		// Handle the connection in a new goroutine.
@@ -58,40 +56,18 @@ func (p *Publisher) sender() {
 			defer c.Close()
 			c.SetNoDelay(false)
 
+			enc := gob.NewEncoder(c)
 			for {
 				data := <-p.clients[addr]
 				t := time.Now()
-
-				var b bytes.Buffer
-				w := zlib.NewWriter(&b)
-				w.Write(data)
-				w.Close()
-
-				var length int32 = int32(b.Len())
-				var ts int32 = int32(time.Now().Unix())
-
-				header := new(bytes.Buffer)
-				if err := binary.Write(header, binary.LittleEndian, length); err != nil {
-					fmt.Println("header len binary.Write failed:", err)
-				}
-				if err := binary.Write(header, binary.LittleEndian, ts); err != nil {
-					fmt.Println("header ts binary.Write failed:", err)
-				}
-				if _, err := c.Write(header.Bytes()); err != nil {
-					log.Printf("[Publisher] Encode got error: '%v', closing connection.\n", err)
-					delete(p.clients, addr)
-					log.Printf("[Publisher] Good bye %v!", addr)
-					break
-				}
-
-				n, err := c.Write(b.Bytes())
+				err := enc.Encode(data)
 				if err != nil {
 					log.Printf("[Publisher] Encode got error: '%v', closing connection.\n", err)
 					delete(p.clients, addr)
 					log.Printf("[Publisher] Good bye %v!", addr)
 					break
 				}
-				log.Printf("[Publisher] Writen %d bytes in %v", n, time.Since(t))
+				log.Printf("[Publisher] Encoded in %v!", time.Since(t))
 			}
 		}(conn)
 	}
@@ -100,40 +76,43 @@ func (p *Publisher) sender() {
 func (p *Publisher) Start() {
 	go p.sender()
 
-	var buffer bytes.Buffer
+	buffer := make([]string, 0)
 	idle_since := time.Now()
 	ticker := time.NewTicker(time.Second)
-	counter := 0
+
 	for {
 		select {
 		case now := <-ticker.C:
-			if counter == 0 {
+			if len(buffer) == 0 {
 				log.Printf("[Publisher] No packets for %.f sec (since %v)!\n",
 					time.Now().Sub(idle_since).Seconds(), idle_since.Format("15:04:05"))
 				continue
 			}
 			idle_since = now
 
-			if len(p.clients) > 0 {
-				for _, c := range p.clients {
-					c <- buffer.Bytes()
-				}
-				log.Printf("[Publisher] Send %d packets to %d clients\n", counter, len(p.clients))
-			} else {
-				log.Printf("[Publisher] Got %d packets, but no clients to send to!\n", counter)
+			if len(p.clients) == 0 {
+				log.Printf("[Publisher] No clients to send to!\n")
+				buffer = make([]string, 0)
+				continue
 			}
 
-			buffer = *bytes.NewBuffer([]byte{})
-			counter = 0
+			t := time.Now()
+			for _, c := range p.clients {
+				c <- buffer
+			}
+			log.Printf("[Publisher] Send %d packets to %d clients in %v\n", len(buffer), len(p.clients), time.Since(t))
+			stats := []string{
+				fmt.Sprintf("pinba.collector.publisher.time %d %3.4f 0 0.0", t.Unix(), float32(time.Since(t).Seconds())),
+				fmt.Sprintf("pinba.collector.publisher.sent %d %d 0 0.0", t.Unix(), len(buffer)),
+				fmt.Sprintf("pinba.collector.publisher.clients %d %d 0 0.0", t.Unix(), len(p.clients)),
+				fmt.Sprintf("pinba.collector.publisher.queue %d %d 0 0.0", t.Unix(), len(p.Data)),
+			}
+			buffer = make([]string, 0)
+			buffer = append(buffer, stats...)
 
 		// Read from channel of decoded packets
 		case data := <-p.Data:
-			n := int32(len(data))
-			if err := binary.Write(&buffer, binary.LittleEndian, n); err != nil {
-				fmt.Println("Failed to write data length:", err)
-			}
-			buffer.Write(data)
-			counter += 1
+			buffer = append(buffer, data...)
 		}
 	}
 }

@@ -53,7 +53,7 @@ func (m *Request) Valid() bool {
 		len(m.TimerUtime) == len(m.TimerStime)
 }
 
-func Decode(ts int64, data []byte) (metrics []string, err error) {
+func Decode(ts int32, data []byte) (metrics []string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = r.(error)

@@ -48,7 +48,7 @@ func (p *Publisher) sender() {
 		}
 
 		addr := fmt.Sprintf("%v", conn.RemoteAddr())
-		p.clients[addr] = make(chan []string, 10000)
+		p.clients[addr] = make(chan []string, 1000)
 		log.Printf("[Publisher] Look's like we got customer! He's from %v\n", addr)
 
 		// Handle the connection in a new goroutine.

@@ -21,8 +21,8 @@ type Worker struct {
 func NewDecoder(raw chan RawData, workers int) *Decoder {
 	decoder := &Decoder{
 		Raw:     raw, // RawPackets from listener
-		Decoded: make(chan []string, 100),
-		timers:  make(chan time.Duration, 100),
+		Decoded: make(chan []string, 1000),
+		timers:  make(chan time.Duration, 1000),
 	}
 	for i := 0; i < workers; i++ {
 		decoder.NewWorker()

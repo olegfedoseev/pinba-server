@@ -40,7 +40,14 @@ func (l *Listener) Start() {
 			if rlen == 0 {
 				continue
 			}
-			l.Data <- buf[0:rlen]
+
+			select {
+				case l.Data <- buf[0:rlen]:
+					// all good
+				default:
+					// chan is full, crap
+					log.Fatalf("[Listener] Channel is full, can't send data")
+			}
 		}
 	}()
 }

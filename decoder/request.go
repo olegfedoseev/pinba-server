@@ -48,9 +48,7 @@ func (*Request) ProtoMessage() {
 
 func (m *Request) Valid() bool {
 	return len(m.TimerHitCount) == len(m.TimerValue) &&
-		len(m.TimerValue) == len(m.TimerTagCount) &&
-		len(m.TimerTagCount) == len(m.TimerUtime) &&
-		len(m.TimerUtime) == len(m.TimerStime)
+		len(m.TimerValue) == len(m.TimerTagCount)
 }
 
 func Decode(ts int32, data []byte) (metrics []string, err error) {
@@ -91,8 +89,12 @@ func Decode(ts int32, data []byte) (metrics []string, err error) {
 			timer_tags = append(timer_tags, fmt.Sprintf("%s=%v", request.Dictionary[key_idx], request.Dictionary[val_idx]))
 		}
 		sort.Strings(timer_tags)
+		var cputime float32 = 0.0
+		if len(request.TimerUtime) == len(request.TimerValue) {
+			cputime = request.TimerUtime[idx]+request.TimerStime[idx]
+		}
 		metrics[idx] = fmt.Sprintf("timer %d %f %d %f %s", ts, val,
-			request.TimerHitCount[idx], request.TimerUtime[idx]+request.TimerStime[idx], strings.Join(timer_tags, " "))
+			request.TimerHitCount[idx], cputime, strings.Join(timer_tags, " "))
 		offset += int(request.TimerTagCount[idx])
 	}
 	metrics[len(metrics)-1] = fmt.Sprintf("request %d %f %d %f %s", ts,

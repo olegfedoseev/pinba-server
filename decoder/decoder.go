@@ -48,7 +48,7 @@ func (d *Decoder) NewWorker() {
 				}
 
 				worker.Result <- metrics
-				worker.Timer <- time.Now().Sub(start)
+				worker.Timer <- time.Since(start)
 			}
 		}
 	}()

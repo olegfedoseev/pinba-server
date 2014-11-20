@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
@@ -20,23 +19,22 @@ func TestCorrectDecoding(t *testing.T) {
 	assert.Equal(t, len(metrics), 33)
 }
 
-func TestIndexOutOfRange(t *testing.T) {
-	_, err := Decode(1394615846, invalid_data)
-	assert.NotNil(t, err)
-}
-
 func TestConvertToString(t *testing.T) {
 	metrics, err := Decode(1394615846, valid_data33)
 	assert.Nil(t, err)
 	assert.Equal(t, len(metrics), 33)
-	for idx, t := range metrics {
-		fmt.Printf("#%d: %s\n", idx, t)
-	}
 }
 
 func BenchmarkDecode(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Decode(time.Now().Unix(), valid_data33)
+		Decode(int32(time.Now().Unix()), valid_data33)
+	}
+}
+
+func BenchmarkRawDecode(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		RawDecode(valid_data33)
 	}
 }

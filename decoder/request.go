@@ -51,6 +51,20 @@ func (m *Request) Valid() bool {
 		len(m.TimerValue) == len(m.TimerTagCount)
 }
 
+// To debug
+func RawDecode(data []byte) (request *Request, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = r.(error)
+		}
+	}()
+
+	request = &Request{}
+	proto.Unmarshal(data, request)
+
+	return request, nil
+}
+
 func Decode(ts int32, data []byte) (metrics []string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -62,7 +76,7 @@ func Decode(ts int32, data []byte) (metrics []string, err error) {
 	proto.Unmarshal(data, request)
 
 	if !request.Valid() {
-		return nil, fmt.Errorf("request is invalid")
+		return nil, fmt.Errorf("request is invalid, data was: %#v\n", data)
 	}
 
 	var tags []string
@@ -91,7 +105,7 @@ func Decode(ts int32, data []byte) (metrics []string, err error) {
 		sort.Strings(timer_tags)
 		var cputime float32 = 0.0
 		if len(request.TimerUtime) == len(request.TimerValue) {
-			cputime = request.TimerUtime[idx]+request.TimerStime[idx]
+			cputime = request.TimerUtime[idx] + request.TimerStime[idx]
 		}
 		metrics[idx] = fmt.Sprintf("timer %d %f %d %f %s", ts, val,
 			request.TimerHitCount[idx], cputime, strings.Join(timer_tags, " "))

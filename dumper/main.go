@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"time"
 	"fmt"
 	"github.com/olegfedoseev/pinba-server/listener"
 	"runtime"
@@ -66,11 +67,14 @@ func main() {
 				continue
 			}
 
-			fmt.Printf("Metric name: %s\n", metric.Name)
-			fmt.Printf("Timestamp %d\n", metric.Timestamp)
-			fmt.Printf("Tags %s\n", metric.Tags)
-			fmt.Printf("Value %3.4f, Count: %d, CPU: %3.4f\n", metric.Value, metric.Count, metric.Cpu)
-			fmt.Printf("\n")
+			if *dump_type == "nginx" {
+				fmt.Printf("[%v] %3.4f [%s]\n", time.Unix(metric.Timestamp, 0).Format("2006-01-02 15:04:05"), metric.Value, metric.Tags)
+			} else {
+				fmt.Printf("Metric name: %s\n", metric.Name)
+				fmt.Printf("[%d: Value %3.4f, Count: %d, CPU: %3.4f] Tags %s\n", metric.Timestamp, metric.Value, metric.Count, metric.Cpu, metric.Tags)
+				fmt.Printf("\n")
+			}
+
 		}
 	}
 }

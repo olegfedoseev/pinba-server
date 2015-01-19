@@ -8,11 +8,84 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"time"
 )
+
+// TCPConn wrapper for naive reconnect support
+type connection struct {
+	addr *net.TCPAddr
+	conn *net.TCPConn
+}
+
+func (c *connection) Connect() (err error) {
+	if c.conn != nil {
+		return nil
+	}
+	if c.conn, err = net.DialTCP("tcp", nil, c.addr); err != nil {
+		return err
+	}
+	c.conn.SetKeepAlive(true)
+
+	log.Printf("[Connection] Connected to tcp://%v", c.addr)
+	return nil
+}
+
+func (c *connection) Close() {
+	if c.conn == nil {
+		return
+	}
+	c.conn.Close()
+	c.conn = nil
+
+	log.Printf("[Connection] Close connection to tcp://%v", c.addr)
+}
+
+func (c *connection) Read() (ts *int32, data *[]byte, err error) {
+	if err = c.Connect(); err != nil {
+		log.Printf("[Connection] Can't connect: %v", err)
+		return nil, nil, err
+	}
+
+	var length int32
+	if err := binary.Read(c.conn, binary.LittleEndian, &length); err != nil {
+		log.Printf("[Connection] Failed to read 'length': %v", err)
+		c.Close()
+		return nil, nil, err
+	}
+	var timestamp int32
+	if err := binary.Read(c.conn, binary.LittleEndian, &timestamp); err != nil {
+		log.Printf("[Connection] Failed to read 'timestamp': %v", err)
+		c.Close()
+		return nil, nil, err
+	}
+
+	buffer := make([]byte, 0, length)
+	tmp := make([]byte, 102400)
+	for {
+		n, err := c.conn.Read(tmp)
+		length -= int32(n)
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("[Connection] Failed to read data: %v", err)
+				c.Close()
+				return nil, nil, err
+			}
+			c.Close()
+			return nil, nil, err
+		}
+		buffer = append(buffer, tmp[:n]...)
+
+		// We read enough
+		if length == 0 {
+			break
+		}
+	}
+	return &timestamp, &buffer, nil
+}
 
 type Listener struct {
 	RawMetrics chan RawData
-	conn       *net.TCPConn
+	conn       *connection
 }
 
 type RawData struct {
@@ -26,69 +99,31 @@ func NewListener(in_addr *string) (l *Listener) {
 		log.Fatalf("[Listener] ResolveTCPAddr: '%v'", err)
 	}
 
-	// TODO: implement reconnect
-	conn, err := net.DialTCP("tcp", nil, addr)
-	if err != nil {
-		log.Fatalf("[Listener] DialTCP: '%v'", err)
-	}
-	conn.SetKeepAlive(true)
-	log.Printf("[Listener] Start listening on tcp://%v\n", *in_addr)
-
-	l = &Listener{
-		conn:       conn,
+	return &Listener{
+		conn:       &connection{addr: addr},
 		RawMetrics: make(chan RawData, 20000),
 	}
-	return l
 }
 
 func (l *Listener) Start() {
 	defer l.conn.Close()
 	for {
-		var ts int32
-		var length int32
-		if err := binary.Read(l.conn, binary.LittleEndian, &length); err != nil {
-			log.Printf("[Listener] binary.Read of length failed: %v", err)
-			break
-		}
-		if err := binary.Read(l.conn, binary.LittleEndian, &ts); err != nil {
-			log.Printf("[Listener] binary.Read of timestamp failed: %v", err)
-			break
-		}
-		//log.Printf("[Listener] Length: %d, Timestamp: %d", length, ts)
-
-		data := make([]byte, 0, length)
-		buf := make([]byte, 102400)
-		for {
-			n, err := l.conn.Read(buf)
-			length -= int32(n)
-			if err != nil {
-				if err != io.EOF {
-					log.Printf("[Listener] Read error: %v", err)
-					break
-				}
-				break
-			}
-			data = append(data, buf[:n]...)
-
-			// We read enough
-			if length == 0 {
-				break
-			}
-		}
-
-		// if len(data) > 0 {
-		// 	log.Printf("[Listener] Received %d bytes of data", len(data))
-		// }
-
-		r, err := zlib.NewReader(bytes.NewBuffer(data))
+		ts, data, err := l.conn.Read()
 		if err != nil {
-			log.Printf("[Listener] Read error: %v", err)
-			break
+			log.Printf("[Listener] Failed to read from socket: %v", err)
+			time.Sleep(5 * time.Second) // wait 5 sec till next try
+			continue
+		}
+
+		r, err := zlib.NewReader(bytes.NewBuffer(*data))
+		if err != nil {
+			log.Printf("[Listener] Failed to create zlib reader: %v", err)
+			continue
 		}
 		result, err := ioutil.ReadAll(r)
 		if err != nil {
-			log.Printf("[Listener] Read error: %v", err)
-			break
+			log.Printf("[Listener] Failed to read from zlib reader: %v", err)
+			continue
 		}
 		r.Close()
 
@@ -98,21 +133,22 @@ func (l *Listener) Start() {
 		for {
 			var part_length int32
 			if err := binary.Read(b, binary.LittleEndian, &part_length); err != nil {
-				log.Printf("[Listener] binary.Read of length failed: %v", err)
-				break
+				log.Printf("[Listener] Failed to read 'length': %v", err)
+				continue
 			}
 			data_length -= 4 + int(part_length)
 
 			part := make([]byte, part_length)
 			if _, err := b.Read(part); err != nil {
-				log.Printf("[Listener] Read error: %v", err)
+				log.Printf("[Listener] Failed to read data: %v", err)
+				continue
 			}
-			l.RawMetrics <- RawData{Data: part, Timestamp: ts}
+			l.RawMetrics <- RawData{Data: part, Timestamp: *ts}
 			counter += 1
 			if data_length == 0 {
 				break
 			}
 		}
-		log.Printf("[Listener] Got %d packets for %d timestamp", counter, ts)
+		log.Printf("[Listener] Got %d packets for %d timestamp", counter, *ts)
 	}
 }

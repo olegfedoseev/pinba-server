@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"code.google.com/p/goprotobuf/proto"
 	"fmt"
-	"bytes"
 	"strconv"
 )
 

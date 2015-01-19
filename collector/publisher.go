@@ -51,7 +51,7 @@ func (p *Publisher) sender() {
 
 		addr := fmt.Sprintf("%v", conn.RemoteAddr())
 		p.clients[addr] = make(chan []byte, 10)
-		log.Printf("[Publisher] Look's like we got customer! He's from %v\n", addr)
+		log.Printf("[Publisher] Look's like we got customer! He's from %v", addr)
 
 		// Handle the connection in a new goroutine.
 		go func(c *net.TCPConn) {
@@ -72,27 +72,27 @@ func (p *Publisher) sender() {
 
 				header := new(bytes.Buffer)
 				if err := binary.Write(header, binary.LittleEndian, length); err != nil {
-					fmt.Println("header len binary.Write failed:", err)
+					fmt.Printf("Failed to Write header length: %v", err)
 				}
 				if err := binary.Write(header, binary.LittleEndian, ts); err != nil {
-					fmt.Println("header ts binary.Write failed:", err)
-				}
-				if _, err := c.Write(header.Bytes()); err != nil {
-					log.Printf("[Publisher] Encode got error: '%v', closing connection.\n", err)
-					delete(p.clients, addr)
-					log.Printf("[Publisher] Good bye %v!", addr)
-					break
+					fmt.Printf("Faield to Write header timestamp: %v", err)
 				}
 
-				n, err := c.Write(b.Bytes())
-				if err != nil {
-					log.Printf("[Publisher] Encode got error: '%v', closing connection.\n", err)
-					delete(p.clients, addr)
-					log.Printf("[Publisher] Good bye %v!", addr)
+				c.SetWriteDeadline(time.Now().Add(time.Second))
+				if _, err := c.Write(header.Bytes()); err != nil {
+					log.Printf("[Publisher] Failed to Write: '%v', closing connection.", err)
 					break
 				}
+				n, err := c.Write(b.Bytes())
+				if err != nil {
+					log.Printf("[Publisher] Failed to Write: '%v', closing connection.", err)
+					break
+				}
+				c.SetWriteDeadline(time.Time{}) // No timeout
 				log.Printf("[Publisher] Writen %d bytes in %v", n, time.Since(t))
 			}
+			delete(p.clients, addr)
+			log.Printf("[Publisher] Goodbye %v!", addr)
 		}(conn)
 	}
 }
@@ -116,6 +116,12 @@ func (p *Publisher) Start() {
 
 			if len(p.clients) > 0 {
 				for _, c := range p.clients {
+					// TODO: send time with data
+					if len(c) == 10 {
+						close(c) // clients channel is full, looks like it's dead
+						log.Printf("[Publisher] Close client connection, too slow")
+						continue
+					}
 					c <- buffer.Bytes()
 				}
 				log.Printf("[Publisher] Send %d packets to %d clients\n", counter, len(p.clients))
@@ -130,7 +136,7 @@ func (p *Publisher) Start() {
 		case data := <-p.Data:
 			n := int32(len(data))
 			if err := binary.Write(&buffer, binary.LittleEndian, n); err != nil {
-				fmt.Println("Failed to write data length:", err)
+				fmt.Printf("Failed to write data length: %v", err)
 			}
 			buffer.Write(data)
 			counter += 1

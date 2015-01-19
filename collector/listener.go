@@ -46,7 +46,7 @@ func (l *Listener) Start() {
 					// all good
 				default:
 					// chan is full, crap
-					log.Fatalf("[Listener] Channel is full, can't send data")
+					log.Printf("[Listener] Channel is full, can't send data")
 			}
 		}
 	}()

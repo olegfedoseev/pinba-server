@@ -3,8 +3,8 @@ package main
 import (
 	"code.google.com/p/goprotobuf/proto"
 	"fmt"
-	"sort"
-	"strings"
+	"bytes"
+	"strconv"
 )
 
 type Request struct {
@@ -79,39 +79,59 @@ func Decode(ts int32, data []byte) (metrics []string, err error) {
 		return nil, fmt.Errorf("request is invalid, data was: %#v\n", data)
 	}
 
-	var tags []string
-	tags = append(tags, fmt.Sprintf("host=%s", *request.Hostname))
-	tags = append(tags, fmt.Sprintf("server=%s", *request.ServerName))
-	tags = append(tags, fmt.Sprintf("script=%s", *request.ScriptName))
+	var tags bytes.Buffer
+	tags.WriteString("host=")
+	tags.WriteString(*request.Hostname)
+	tags.WriteString(" server=")
+	tags.WriteString(*request.ServerName)
+	tags.WriteString(" script=")
+	tags.WriteString(*request.ScriptName)
 	if request.Status != nil {
-		tags = append(tags, fmt.Sprintf("status=%d", *request.Status))
+		tags.WriteString(" status=")
+		tags.WriteString(strconv.FormatInt(int64(*request.Status), 10))
 	}
 	for idx, val := range request.TagValue {
-		tags = append(tags, fmt.Sprintf("%s=%s", request.Dictionary[request.TagName[idx]], request.Dictionary[val]))
+		tags.WriteString(" ")
+		tags.WriteString(request.Dictionary[request.TagName[idx]])
+		tags.WriteString("=")
+		tags.WriteString(request.Dictionary[val])
 	}
-	sort.Strings(tags)
 
 	offset := 0
 	metrics = make([]string, len(request.TimerValue)+1)
 	for idx, val := range request.TimerValue {
-		timer_tags := tags
+		var timer bytes.Buffer
+		var cputime float64 = 0.0
+		if len(request.TimerUtime) == len(request.TimerValue) {
+			cputime = float64(request.TimerUtime[idx] + request.TimerStime[idx])
+		}
+
+		timer.WriteString("timer ")
+		timer.WriteString(strconv.FormatInt(int64(ts), 10))
+		timer.WriteString(" ")
+		timer.WriteString(strconv.FormatFloat(float64(val), 'f', 4, 64))
+		timer.WriteString(" ")
+		timer.WriteString(strconv.FormatInt(int64(request.TimerHitCount[idx]), 10))
+		timer.WriteString(" ")
+		timer.WriteString(strconv.FormatFloat(cputime, 'f', 4, 64))
+		timer.WriteString(" ")
+		timer.WriteString(tags.String())
+
 		for k, key_idx := range request.TimerTagName[offset : offset+int(request.TimerTagCount[idx])] {
 			val_idx := request.TimerTagValue[int(offset)+k]
 			if val_idx >= uint32(len(request.Dictionary)) || key_idx >= uint32(len(request.Dictionary)) {
 				continue
 			}
-			timer_tags = append(timer_tags, fmt.Sprintf("%s=%v", request.Dictionary[key_idx], request.Dictionary[val_idx]))
+			timer.WriteString(" ")
+			timer.WriteString(request.Dictionary[key_idx])
+			timer.WriteString("=")
+			timer.WriteString(request.Dictionary[val_idx])
 		}
-		sort.Strings(timer_tags)
-		var cputime float32 = 0.0
-		if len(request.TimerUtime) == len(request.TimerValue) {
-			cputime = request.TimerUtime[idx] + request.TimerStime[idx]
-		}
-		metrics[idx] = fmt.Sprintf("timer %d %f %d %f %s", ts, val,
-			request.TimerHitCount[idx], cputime, strings.Join(timer_tags, " "))
+
+		metrics[idx] = timer.String()
 		offset += int(request.TimerTagCount[idx])
 	}
 	metrics[len(metrics)-1] = fmt.Sprintf("request %d %f %d %f %s", ts,
-		*request.RequestTime, 1, *request.RuUtime+*request.RuStime, strings.Join(tags, " "))
+		*request.RequestTime, 1, *request.RuUtime+*request.RuStime, tags.String())
 	return metrics, nil
 }

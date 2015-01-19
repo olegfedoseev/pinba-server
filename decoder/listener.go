@@ -47,11 +47,11 @@ func (l *Listener) Start() {
 		var ts int32
 		var length int32
 		if err := binary.Read(l.conn, binary.LittleEndian, &length); err != nil {
-			log.Printf("[Listener] binary.Read of length failed:", err)
+			log.Printf("[Listener] binary.Read of length failed: %v", err)
 			break
 		}
 		if err := binary.Read(l.conn, binary.LittleEndian, &ts); err != nil {
-			log.Printf("[Listener] binary.Read of timestamp failed:", err)
+			log.Printf("[Listener] binary.Read of timestamp failed: %v", err)
 			break
 		}
 		//log.Printf("[Listener] Length: %d, Timestamp: %d", length, ts)
@@ -63,7 +63,7 @@ func (l *Listener) Start() {
 			length -= int32(n)
 			if err != nil {
 				if err != io.EOF {
-					log.Printf("[Listener] Read error:", err)
+					log.Printf("[Listener] Read error: %v", err)
 					break
 				}
 				break
@@ -82,12 +82,12 @@ func (l *Listener) Start() {
 
 		r, err := zlib.NewReader(bytes.NewBuffer(data))
 		if err != nil {
-			log.Printf("[Listener] Read error:", err)
+			log.Printf("[Listener] Read error: %v", err)
 			break
 		}
 		result, err := ioutil.ReadAll(r)
 		if err != nil {
-			log.Printf("[Listener] Read error:", err)
+			log.Printf("[Listener] Read error: %v", err)
 			break
 		}
 		r.Close()
@@ -98,14 +98,14 @@ func (l *Listener) Start() {
 		for {
 			var part_length int32
 			if err := binary.Read(b, binary.LittleEndian, &part_length); err != nil {
-				log.Printf("[Listener] binary.Read of length failed:", err)
+				log.Printf("[Listener] binary.Read of length failed: %v", err)
 				break
 			}
 			data_length -= 4 + int(part_length)
 
 			part := make([]byte, part_length)
 			if _, err := b.Read(part); err != nil {
-				log.Printf("[Listener] Read error:", err)
+				log.Printf("[Listener] Read error: %v", err)
 			}
 			l.RawMetrics <- RawData{Data: part, Timestamp: ts}
 			counter += 1

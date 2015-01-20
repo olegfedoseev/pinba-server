@@ -115,6 +115,7 @@ func (m *Metric) Value() float64 {
 	return m.Values[0]
 }
 
+// put <metric> <timestamp> <value> <tagk1=tagv1[ tagk2=tagv2 ...tagkN=tagvN]>
 func (m* Metric) Put(name string, value float64) string {
 	var buffer bytes.Buffer
 	buffer.WriteString("put ")

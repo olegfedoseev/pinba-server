@@ -4,6 +4,7 @@ import (
 	"sort"
 	"bytes"
 	"regexp"
+	"errors"
 )
 
 type Tag struct {
@@ -33,11 +34,11 @@ func (t Tags) String() string {
 
 func (t Tags) Get(key string) (string, error) {
 	for _, tag := range t {
-		if tag.Key == "server" {
+		if tag.Key == key {
 			return tag.Value, nil
 		}
 	}
-	return nil, errors.New("no such tag")
+	return "", errors.New("no such tag")
 }
 
 var tags_buffer map[string]string
@@ -60,6 +61,9 @@ func (t Tags) Filter(filter *map[string]bool) string {
 		}
 		// Fuck... duplicated tag name
 		if tag.Value == "dbwrite-proxy" || tag.Value == "dbread-proxy" {
+			continue
+		}
+		if tag.Value == "" {
 			continue
 		}
 		if i > 0 && b.Len() > 0 {

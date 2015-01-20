@@ -3,11 +3,9 @@ package main
 import (
 	"github.com/olegfedoseev/pinba-server/listener"
 	"github.com/olegfedoseev/pinba-server/metrics"
-	//	"fmt"
 	"bytes"
 	"log"
 	"net"
-	//	"strconv"
 	"strings"
 	"time"
 )
@@ -40,7 +38,7 @@ func (w *Writer) Start() {
 
 	ticker := time.NewTicker(10 * time.Second)
 
-	metricsBuffer := metrics.NewMetrics(20000)
+	metricsBuffer := metrics.NewMetrics(100000)
 
 	for {
 		select {
@@ -48,13 +46,9 @@ func (w *Writer) Start() {
 
 			var cnt int
 			var buffer bytes.Buffer
-			var d1, d2 time.Duration
 			t := time.Now()
 			log.Printf("Tick! %v %v", len(metricsBuffer.Data), metricsBuffer.Count)
 			for _, m := range metricsBuffer.Data {
-				// put <metric> <timestamp> <value> <tagk1=tagv1[ tagk2=tagv2 ...tagkN=tagvN]>
-				// [rps|cpu|p85|p95|max]
-				t1 := time.Now()
 				if strings.HasSuffix(m.Name, ".cpu") {
 					cpu := m.Percentile(95)
 					if cpu > 0 { // if cpu usage is zero, don't send it, it's not interesting
@@ -68,29 +62,23 @@ func (w *Writer) Start() {
 					buffer.WriteString(m.Put(".max", m.Max()))
 					cnt += 4
 				}
-				d1 += time.Since(t1)
 
 				if cnt%1000 == 0 {
-					t2 := time.Now()
 					if _, err = sock.Write(buffer.Bytes()); err != nil {
 						log.Fatalf("[Writer] Failed to write data: %v, line was: %v",
 							err, buffer.String())
 						continue
 					}
 					buffer.Reset()
-					d2 += time.Since(t2)
 				}
 			}
-
-			t2 := time.Now()
 			if _, err = sock.Write(buffer.Bytes()); err != nil {
 				log.Fatalf("[Writer] Failed to write data: %v, line was: %v",
 					err, buffer.String())
 				continue
 			}
-			d2 += time.Since(t2)
 
-			log.Printf("[Writer] Data writen in %v (%d), %v, %v", time.Now().Sub(t), cnt, d1, d2)
+			log.Printf("[Writer] %v metrics writen in %v", cnt, time.Since(t))
 			metricsBuffer.Reset()
 
 		case input := <-w.input:
@@ -101,31 +89,39 @@ func (w *Writer) Start() {
 
 			t := time.Now()
 			for _, m := range input {
-				if m.Name != "request" {
-					continue
-				}
 				ts := m.Timestamp * 1000
-
 				//php.requests.[rps|cpu|p85|p95|max] [val] status=200 user=guest is_ajax=no region=66
 				if m.Name == "request" {
+					server, err := m.Tags.Get("server")
+					if err != nil {
+						log.Printf("No server tag: %v %v", m.Name, m.Tags)
+						continue // no server tag :(
+					}
+
 					tags := m.Tags.Filter(&map[string]bool{"status": true, "user": true, "type": true, "region": true})
 					metricsBuffer.Add(ts, tags, "php.requests", m.Count, m.Value, m.Cpu)
 
 					tags = m.Tags.Filter(&map[string]bool{"script": true, "status": true, "user": true, "type": true, "region": true})
+					metricsBuffer.Add(ts, tags, "php.requests."+server, m.Count, m.Value, m.Cpu)
+				} else if m.Name == "timer" {
+					group, err := m.Tags.Get("group")
+					if err != nil {
+						//log.Printf("No group tag: %v", m.Tags)
+						continue // no group tag :(
+					}
 					server, err := m.Tags.Get("server")
 					if err != nil {
 						continue // no server tag :(
 					}
-					metricsBuffer.Add(ts, tags, "php.requests."+server, m.Count, m.Value, m.Cpu)
-				}
 
-				if m.Name == "timers" {
-					group, err := m.Tags.Get("group")
-					if err != nil {
-						continue // no group tag :(
-					}
 					tags := m.Tags.Filter(&map[string]bool{"server": true, "operation": true, "type": true, "region": true, "ns": true, "database": true})
-					metricsBuffer.Add(ts, tags, "php.timers"+group, m.Count, m.Value, m.Cpu)
+					metricsBuffer.Add(ts, tags, "php.timers."+group, m.Count, m.Value, 0)
+
+					tags = m.Tags.Filter(&map[string]bool{"script": true, "operation": true, "type": true, "region": true, "ns": true, "database": true})
+					metricsBuffer.Add(ts, tags, "php.timers."+server+"."+group, m.Count, m.Value, 0)
+
+				} else {
+					metricsBuffer.Add(ts, m.Tags.String(), m.Name, m.Count, m.Value, 0)
 				}
 			}
 			log.Printf("[Writer] Get %v metrics for %v, appended in %v",

@@ -9,9 +9,45 @@ import (
 	"time"
 )
 
+// TCPConn wrapper for naive reconnect support
+// TODO: refactor to separate generic TCPConn "reconnector"
+type connection struct {
+	addr *net.TCPAddr
+	conn *net.TCPConn
+}
+
+func (c *connection) Connect() (err error) {
+	if c.conn != nil {
+		return nil
+	}
+	if c.conn, err = net.DialTCP("tcp", nil, c.addr); err != nil {
+		return err
+	}
+	c.conn.SetKeepAlive(true)
+
+	log.Printf("[Connection] Connected to tcp://%v", c.addr)
+	return nil
+}
+
+func (c *connection) Close() {
+	if c.conn == nil {
+		return
+	}
+	c.conn.Close()
+	c.conn = nil
+
+	log.Printf("[Connection] Close connection to tcp://%v", c.addr)
+}
+
+func (c *connection) Connection() *net.TCPConn{
+	c.Connect()
+
+	return c.conn
+}
+
 type Listener struct {
 	RawMetrics chan []*RawMetric
-	server     *net.TCPConn
+	conn       *connection
 }
 
 type RawMetric struct {
@@ -20,7 +56,7 @@ type RawMetric struct {
 	Count     int64
 	Value     float64
 	Cpu       float64
-	Tags      string
+	Tags      Tags
 }
 
 func NewListener(in_addr *string) (l *Listener) {
@@ -29,29 +65,27 @@ func NewListener(in_addr *string) (l *Listener) {
 		log.Fatalf("[Listener] ResolveTCPAddr: '%v'", err)
 	}
 
-	// TODO: implement reconnect
-	sock, err := net.DialTCP("tcp", nil, addr)
-	if err != nil {
-		log.Fatalf("[Listener] DialTCP: '%v'", err)
-	}
-	sock.SetKeepAlive(true)
-	log.Printf("[Listener] Start listening on tcp://%v\n", *in_addr)
-
-	l = &Listener{
-		server:     sock,
+	return &Listener{
+		conn:     &connection{addr: addr},
 		RawMetrics: make(chan []*RawMetric, 10000),
 	}
-	return l
 }
 
 func (l *Listener) Start() {
-	defer l.server.Close()
-	dec := gob.NewDecoder(l.server)
+	defer l.conn.Close()
+	var dec *gob.Decoder
 	for {
 		var data = make([]string, 0)
-		err := dec.Decode(&data)
-		if err != nil {
+		if dec == nil {
+			dec = gob.NewDecoder(l.conn.Connection())
+		}
+		if err := dec.Decode(&data); err != nil {
 			log.Printf("[Listener] Error on Decode: %v", err)
+			// Assume connection failure, close decoder and connection, wait 5 seconds
+			dec = nil
+			l.conn.Close()
+			time.Sleep(5 * time.Second)
+			continue
 		}
 		if len(data) == 0 {
 			continue
@@ -78,9 +112,16 @@ func (l *Listener) Start() {
 				log.Printf("[Listener] Error on ParseFloat: %v", err)
 			}
 
-			tags := ""
+			var tags Tags
 			if len(metric) >= 6 {
-				tags = metric[5]
+				tmp := strings.Split(metric[5], " ")
+				for _, tag := range tmp {
+					kv := strings.Split(tag, "=")
+					if len(kv) < 2 {
+						continue
+					}
+					tags = append(tags, Tag{kv[0], kv[1]})
+				}
 			}
 
 			buffer[idx] = &RawMetric{

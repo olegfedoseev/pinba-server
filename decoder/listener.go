@@ -46,6 +46,7 @@ func (c *connection) Read() (ts *int32, data *[]byte, err error) {
 		return nil, nil, err
 	}
 
+	c.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var length int32
 	if err := binary.Read(c.conn, binary.LittleEndian, &length); err != nil {
 		log.Printf("[Connection] Failed to read 'length': %v", err)
@@ -80,6 +81,8 @@ func (c *connection) Read() (ts *int32, data *[]byte, err error) {
 			break
 		}
 	}
+	c.conn.SetReadDeadline(time.Time{}) // No timeout
+
 	return &timestamp, &buffer, nil
 }
 
@@ -149,6 +152,6 @@ func (l *Listener) Start() {
 				break
 			}
 		}
-		log.Printf("[Listener] Got %d packets for %d timestamp", counter, *ts)
+		log.Printf("[Listener] Got %d packets for %v", counter, time.Unix(int64(*ts), 0).Format("15:04:05"))
 	}
 }

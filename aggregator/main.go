@@ -2,9 +2,10 @@ package main
 
 import (
 	"flag"
-	"github.com/olegfedoseev/pinba-server/listener"
+	zmq "github.com/pebbe/zmq4"
 	"log"
 	"runtime"
+	"time"
 )
 
 var (
@@ -20,9 +21,36 @@ func main() {
 	log.Printf("Using %d/%d CPU\n", *cpu, runtime.NumCPU())
 	runtime.GOMAXPROCS(*cpu)
 
-	listener := listener.NewListener(in_addr)
-	go listener.Start()
+	subscriber, _ := zmq.NewSocket(zmq.SUB)
+	defer subscriber.Close()
+	subscriber.Connect(*in_addr)
+	subscriber.SetSubscribe("request")
+	subscriber.SetSubscribe("timer")
 
-	writer := NewWriter(out_addr, listener.RawMetrics)
-	writer.Start()
+	var metrics = make(chan []*RawMetric, 10000)
+	var buffer = make([]*RawMetric, 0)
+	var metric *RawMetric
+	ts := int64(time.Now().Unix())
+	log.Printf("Starting with ts %v", ts)
+
+	writer := NewWriter(out_addr, metrics)
+	go writer.Start()
+
+	for {
+		msg, err := subscriber.RecvMessage(0)
+		if err != nil {
+			log.Printf("Failed to recive message: %v", err)
+		}
+		if metric, err = NewRawMetric(msg[0], msg[1]); err != nil {
+			break
+		}
+		if metric.Timestamp > ts {
+			metrics <- buffer
+			log.Printf("Send %d metrics to writer for %v", len(buffer), ts)
+			buffer = make([]*RawMetric, 0)
+			ts = metric.Timestamp
+		}
+
+		buffer = append(buffer, metric)
+	}
 }

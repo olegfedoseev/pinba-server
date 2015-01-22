@@ -1,8 +1,6 @@
 package main
 
 import (
-	"github.com/olegfedoseev/pinba-server/listener"
-	"github.com/olegfedoseev/pinba-server/metrics"
 	"bytes"
 	"log"
 	"net"
@@ -11,11 +9,11 @@ import (
 )
 
 type Writer struct {
-	input chan []*listener.RawMetric
+	input chan []*RawMetric
 	host  string
 }
 
-func NewWriter(addr *string, src chan []*listener.RawMetric) (w *Writer) {
+func NewWriter(addr *string, src chan []*RawMetric) (w *Writer) {
 	return &Writer{input: src, host: *addr}
 }
 
@@ -27,7 +25,7 @@ func (w *Writer) Start() {
 		log.Fatalf("[Writer] ResolveTCPAddr: '%v'", err)
 	}
 
-	// TODO: implement reconnect
+	// TODO: implement reconnect ?
 	sock, err := net.DialTCP("tcp", nil, addr)
 	if err != nil {
 		log.Fatalf("[Writer] DialTCP: '%v'", err)
@@ -38,7 +36,7 @@ func (w *Writer) Start() {
 
 	ticker := time.NewTicker(10 * time.Second)
 
-	metricsBuffer := metrics.NewMetrics(100000)
+	metricsBuffer := NewMetrics(100000)
 
 	for {
 		select {
@@ -90,7 +88,7 @@ func (w *Writer) Start() {
 			t := time.Now()
 			for _, m := range input {
 				ts := m.Timestamp * 1000
-				//php.requests.[rps|cpu|p85|p95|max] [val] status=200 user=guest is_ajax=no region=66
+
 				if m.Name == "request" {
 					server, err := m.Tags.Get("server")
 					if err != nil {
@@ -98,10 +96,10 @@ func (w *Writer) Start() {
 						continue // no server tag :(
 					}
 
-					tags := m.Tags.Filter(&map[string]bool{"status": true, "user": true, "type": true, "region": true})
+					tags := m.Tags.Filter(&[]string{"status", "user", "type", "region"})
 					metricsBuffer.Add(ts, tags, "php.requests", m.Count, m.Value, m.Cpu)
 
-					tags = m.Tags.Filter(&map[string]bool{"script": true, "status": true, "user": true, "type": true, "region": true})
+					tags = m.Tags.Filter(&[]string{"script", "status", "user", "type", "region"})
 					metricsBuffer.Add(ts, tags, "php.requests."+server, m.Count, m.Value, m.Cpu)
 				} else if m.Name == "timer" {
 					group, err := m.Tags.Get("group")
@@ -114,10 +112,10 @@ func (w *Writer) Start() {
 						continue // no server tag :(
 					}
 
-					tags := m.Tags.Filter(&map[string]bool{"server": true, "operation": true, "type": true, "region": true, "ns": true, "database": true})
+					tags := m.Tags.Filter(&[]string{"server", "operation", "type", "region", "ns", "database"})
 					metricsBuffer.Add(ts, tags, "php.timers."+group, m.Count, m.Value, 0)
 
-					tags = m.Tags.Filter(&map[string]bool{"script": true, "operation": true, "type": true, "region": true, "ns": true, "database": true})
+					tags = m.Tags.Filter(&[]string{"script", "operation", "type", "region", "ns", "database"})
 					metricsBuffer.Add(ts, tags, "php.timers."+server+"."+group, m.Count, m.Value, 0)
 
 				} else {

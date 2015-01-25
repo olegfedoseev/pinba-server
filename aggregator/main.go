@@ -46,7 +46,6 @@ func main() {
 		}
 		if metric.Timestamp > ts {
 			metrics <- buffer
-			log.Printf("Send %d metrics to writer for %v", len(buffer), ts)
 			buffer = make([]*RawMetric, 0)
 			ts = metric.Timestamp
 		}

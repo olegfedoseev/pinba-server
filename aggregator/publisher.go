@@ -18,21 +18,21 @@ func NewWriter(addr *string, src chan []*RawMetric) (w *Writer) {
 }
 
 func (w *Writer) Start() {
-	log.Printf("[Writer] Ready!")
+	log.Printf("Ready!")
 
 	addr, err := net.ResolveTCPAddr("tcp4", w.host)
 	if err != nil {
-		log.Fatalf("[Writer] ResolveTCPAddr: '%v'", err)
+		log.Fatalf("ResolveTCPAddr: '%v'", err)
 	}
 
 	// TODO: implement reconnect ?
 	sock, err := net.DialTCP("tcp", nil, addr)
 	if err != nil {
-		log.Fatalf("[Writer] DialTCP: '%v'", err)
+		log.Fatalf("DialTCP: '%v'", err)
 	}
 	defer sock.Close()
 	sock.SetKeepAlive(true)
-	log.Printf("[Writer] Connected to tcp://%v\n", w.host)
+	log.Printf("Connected to tcp://%v\n", w.host)
 
 	ticker := time.NewTicker(10 * time.Second)
 
@@ -45,7 +45,7 @@ func (w *Writer) Start() {
 			var cnt int
 			var buffer bytes.Buffer
 			t := time.Now()
-			log.Printf("Tick! %v %v", len(metricsBuffer.Data), metricsBuffer.Count)
+			log.Printf("Tick! %v metrics for 10 seconds", metricsBuffer.Count)
 			for _, m := range metricsBuffer.Data {
 				if strings.HasSuffix(m.Name, ".cpu") {
 					cpu := m.Percentile(95)
@@ -60,7 +60,6 @@ func (w *Writer) Start() {
 					buffer.WriteString(m.Put(".max", m.Max()))
 					cnt += 4
 				}
-
 				if cnt%1000 == 0 {
 					if _, err = sock.Write(buffer.Bytes()); err != nil {
 						log.Fatalf("[Writer] Failed to write data: %v, line was: %v",
@@ -71,28 +70,27 @@ func (w *Writer) Start() {
 				}
 			}
 			if _, err = sock.Write(buffer.Bytes()); err != nil {
-				log.Fatalf("[Writer] Failed to write data: %v, line was: %v",
+				log.Fatalf("Failed to write data: %v, line was: %v",
 					err, buffer.String())
 				continue
 			}
 
-			log.Printf("[Writer] %v metrics writen in %v", cnt, time.Since(t))
+			log.Printf("%v unique metrics sent to OpenTSDB in %v", cnt, time.Since(t))
 			metricsBuffer.Reset()
 
 		case input := <-w.input:
 			if len(input) == 0 {
-				log.Printf("[Writer] Input is empty\n")
+				log.Printf("Input is empty\n")
 				continue
 			}
 
 			t := time.Now()
 			for _, m := range input {
 				ts := m.Timestamp * 1000
+				server, _ := m.Tags.Get("server")
 
 				if m.Name == "request" {
-					server, err := m.Tags.Get("server")
-					if err != nil {
-						log.Printf("No server tag: %v %v", m.Name, m.Tags)
+					if server == "" || server == "unknown" {
 						continue // no server tag :(
 					}
 
@@ -101,15 +99,16 @@ func (w *Writer) Start() {
 
 					tags = m.Tags.Filter(&[]string{"script", "status", "user", "type", "region"})
 					metricsBuffer.Add(ts, tags, "php.requests."+server, m.Count, m.Value, m.Cpu)
+
 				} else if m.Name == "timer" {
+					if server == "" || server == "unknown" {
+						continue // no server tag :(
+					}
+
 					group, err := m.Tags.Get("group")
 					if err != nil {
 						//log.Printf("No group tag: %v", m.Tags)
 						continue // no group tag :(
-					}
-					server, err := m.Tags.Get("server")
-					if err != nil {
-						continue // no server tag :(
 					}
 
 					tags := m.Tags.Filter(&[]string{"server", "operation", "type", "region", "ns", "database"})
@@ -122,7 +121,7 @@ func (w *Writer) Start() {
 					metricsBuffer.Add(ts, m.Tags.String(), m.Name, m.Count, m.Value, 0)
 				}
 			}
-			log.Printf("[Writer] Get %v metrics for %v, appended in %v",
+			log.Printf("Get %v metrics for %v, appended in %v",
 				len(input), input[0].Timestamp, time.Now().Sub(t))
 		}
 	}

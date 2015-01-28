@@ -253,13 +253,13 @@ func (m *Metric) Value() float64 {
 }
 
 // put <metric> <timestamp> <value> <tagk1=tagv1[ tagk2=tagv2 ...tagkN=tagvN]>
-func (m *Metric) Put(name string, value float64) string {
+func (m *Metric) Put(ts, name string, value float64) string {
 	var buffer bytes.Buffer
 	buffer.WriteString("put ")
 	buffer.WriteString(m.Name)
 	buffer.WriteString(name)
 	buffer.WriteString(" ")
-	buffer.WriteString(m.Time)
+	buffer.WriteString(ts)
 	buffer.WriteString(" ")
 	buffer.WriteString(strconv.FormatFloat(value, 'f', 4, 64))
 	buffer.WriteString(" ")

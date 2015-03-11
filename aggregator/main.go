@@ -8,38 +8,35 @@ import (
 )
 
 var (
-	in_addr  = flag.String("in", "", "incoming socket")
-	out_addr = flag.String("out", "", "out address")
-	cpu      = flag.Int("cpu", 1, "how much cores to use")
+	inAddr  = flag.String("in", "", "incoming socket")
+	outAddr = flag.String("out", "", "out address")
+	cpu     = flag.Int("cpu", 1, "how much cores to use")
 )
 
 func main() {
 	flag.Parse()
 
-	log.Printf("Pinba aggregator reading from %s\n", *in_addr)
+	log.Printf("Pinba aggregator reading from %s\n", *inAddr)
 	log.Printf("Using %d/%d CPU\n", *cpu, runtime.NumCPU())
 	runtime.GOMAXPROCS(*cpu)
 
-	var metrics = make(chan []*RawMetric, 10000)
-	var buffer = make([]*RawMetric, 0)
-	var metric *RawMetric
-	ts := int64(time.Now().Unix())
-	log.Printf("Starting with ts %v", ts)
-
-	writer := NewWriter(out_addr, metrics)
+	var metrics = make(chan []*RawMetric, 60) // 60 seconds buffer
+	writer := NewWriter(outAddr, metrics)
 	go writer.Start()
 
-	for msg := range receive(*in_addr, []string{"request", "timer"}) {
-		var err error
-		if metric, err = NewRawMetric(msg[0], msg[1]); err != nil {
-			break
+	ts := int64(time.Now().Unix())
+	buffer := make([]*RawMetric, 0)
+	for msg := range receive(*inAddr, []string{"request", "timer"}) {
+		metric, err := NewRawMetric(msg[0], msg[1])
+		if err != nil {
+			log.Fatalf("Failed to get raw metrics: %v", err)
 		}
 		if metric.Timestamp > ts {
+			ts = metric.Timestamp
+
 			metrics <- buffer
 			buffer = make([]*RawMetric, 0)
-			ts = metric.Timestamp
 		}
-
 		buffer = append(buffer, metric)
 	}
 }

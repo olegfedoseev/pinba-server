@@ -118,10 +118,11 @@ func send(writer io.Writer, ts int64, data map[string]*Metric, rawCount int) {
 			}
 		} else {
 			buffer.WriteString(m.Put(timestamp, ".rps", float64(m.Count)/10))
+			buffer.WriteString(m.Put(timestamp, ".p10", m.Percentile(10)))
 			buffer.WriteString(m.Put(timestamp, ".p85", m.Percentile(85)))
 			buffer.WriteString(m.Put(timestamp, ".p95", m.Percentile(95)))
 			buffer.WriteString(m.Put(timestamp, ".max", m.Max()))
-			cnt += 4
+			cnt += 5
 		}
 
 		if cnt%1000 == 0 {

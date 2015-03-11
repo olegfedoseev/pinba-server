@@ -181,6 +181,7 @@ type Metric struct {
 	Values []float64
 	Tags   string
 	length int64
+	sorted bool
 }
 
 func sum(values []float64) (sum float64) {
@@ -198,15 +199,16 @@ func (m *Metric) Add(cnt int64, val float64) {
 	m.Count += cnt
 	m.Values = append(m.Values, val)
 	m.length += 1
+	m.sorted = false
 }
 
 func (m *Metric) Max() float64 {
-	sort.Float64s(m.Values)
+	m.sort()
 	return m.Values[m.length-1]
 }
 
-func (m *Metric) Mean() float64 {
-	sort.Float64s(m.Values)
+func (m *Metric) Median() float64 {
+	m.sort()
 	return m.Values[m.length/2]
 }
 
@@ -215,7 +217,7 @@ func (m *Metric) Stdev() float64 {
 		return 0.0
 	}
 
-	sort.Float64s(m.Values)
+	m.sort()
 
 	mean := sum(m.Values) / float64(m.length)
 	var variance float64
@@ -231,18 +233,18 @@ func (m *Metric) Percentile(rank int) float64 {
 		return 0.0
 	}
 
-	sort.Float64s(m.Values)
-	pos := float64(rank) / 100 * float64(m.length)
-	ipos := int64(pos)
+	m.sort()
+	percent := float64(rank) / 100
+	k := float64(len(m.Values)-1) * percent
+	f := math.Floor(k)
+	c := math.Ceil(k)
 
-	if ipos < 1 {
-		return m.Values[0]
-	} else if ipos >= m.length {
-		return m.Values[m.length-1]
+	if f == c {
+		return m.Values[int(k)]
 	}
-	lower := m.Values[ipos-1]
-	upper := m.Values[ipos]
-	return (pos-math.Floor(pos))*(upper-lower) + lower
+	d0 := m.Values[int(f)] * (c - k)
+	d1 := m.Values[int(c)] * (k - f)
+	return d0 + d1
 }
 
 func (m *Metric) Value() float64 {
@@ -266,4 +268,11 @@ func (m *Metric) Put(ts, name string, value float64) string {
 	buffer.WriteString(m.Tags)
 	buffer.WriteString("\n")
 	return buffer.String()
+}
+
+func (m *Metric) sort() {
+	if !m.sorted {
+		sort.Float64s(m.Values)
+		m.sorted = true
+	}
 }

@@ -85,3 +85,62 @@ func TestTagsFilter(t *testing.T) {
 	tags = Tags{Tag{"bbb", "val2"}, Tag{"aaa", ""}, Tag{"ccc", "val3"}}
 	assert.Equal(t, "bbb=val2", tags.Filter(&[]string{"aaa", "bbb"}))
 }
+
+func TestSum(t *testing.T) {
+	assert.Equal(t, 0, sum([]float64{}))
+	assert.Equal(t, 0, sum([]float64{0}))
+	assert.Equal(t, 1, sum([]float64{0, 1}))
+	assert.Equal(t, 6, sum([]float64{1, 2, 3}))
+	assert.Equal(t, 7, sum([]float64{1.5, 2.5, 3}))
+}
+
+func TestNewMetric(t *testing.T) {
+	metric := NewMetric(123, "test.metric", "aaa=val_1 bbb=val_2")
+	assert.Equal(t, "123", metric.Time)
+	assert.Equal(t, "test.metric", metric.Name)
+	assert.Equal(t, 0, metric.Count)
+	assert.Equal(t, 0, metric.Value())
+
+	assert.Equal(t, 0, metric.Percentile(0))
+	assert.Equal(t, 0, metric.Percentile(25))
+	assert.Equal(t, 0, metric.Percentile(75))
+}
+
+func TestMetricAdd(t *testing.T) {
+	metric := NewMetric(123, "test.metric", "aaa=val_1 bbb=val_2")
+	assert.Equal(t, 0, metric.Count)
+
+	metric.Add(1, 0.1)
+	metric.Add(2, 0.2)
+	metric.Add(3, 0.3)
+
+	assert.Equal(t, 6, metric.Count)
+	assert.Equal(t, 0.3, metric.Max())
+	assert.Equal(t, 0.1, metric.Value())
+}
+
+func TestMetricPut(t *testing.T) {
+	metric := NewMetric(123, "test.metric", "aaa=val_1 bbb=val_2")
+
+	assert.Equal(t, "put test.metric.p95 123 123.4560 aaa=val_1 bbb=val_2\n",
+		metric.Put("123", ".p95", 123.456))
+}
+
+func TestMetricPercentile(t *testing.T) {
+	metric := NewMetric(123, "test.metric", "aaa=val_1 bbb=val_2")
+
+	// 1.3,2.2,2.7,3.1,3.3,3.7
+
+	metric.Add(1, 3.7)
+	metric.Add(1, 2.7)
+	metric.Add(1, 3.3)
+	metric.Add(1, 1.3)
+	metric.Add(1, 2.2)
+	metric.Add(1, 3.1)
+
+	assert.InDelta(t, 1.300, metric.Percentile(0), 0.001, "Percentile(0)")
+	assert.InDelta(t, 2.325, metric.Percentile(25), 0.001, "Percentile(25)")
+	assert.InDelta(t, 2.900, metric.Percentile(50), 0.001, "Percentile(50)")
+	assert.InDelta(t, 3.250, metric.Percentile(75), 0.001, "Percentile(75)")
+	assert.InDelta(t, 3.700, metric.Percentile(100), 0.001, "Percentile(100)")
+}

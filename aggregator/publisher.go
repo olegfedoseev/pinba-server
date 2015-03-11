@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -13,29 +14,26 @@ import (
 
 type Writer struct {
 	input chan []*RawMetric
-	host  string
+	host  *net.TCPAddr
 }
 
 func NewWriter(addr *string, src chan []*RawMetric) (w *Writer) {
-	return &Writer{input: src, host: *addr}
+	host, err := net.ResolveTCPAddr("tcp4", *addr)
+	if err != nil {
+		log.Fatalf("ResolveTCPAddr: '%v'", err)
+	}
+	return &Writer{input: src, host: host}
 }
 
 func (w *Writer) Start() {
 	log.Printf("Ready!")
 
-	addr, err := net.ResolveTCPAddr("tcp4", w.host)
+	sock, err := net.DialTCP("tcp", nil, w.host)
 	if err != nil {
-		log.Fatalf("ResolveTCPAddr: '%v'", err)
-	}
-
-	// TODO: implement reconnect ?
-	sock, err := net.DialTCP("tcp", nil, addr)
-	if err != nil {
-		log.Fatalf("DialTCP: '%v'", err)
+		log.Printf("DialTCP: '%v'", err)
+		return
 	}
 	defer sock.Close()
-	sock.SetKeepAlive(true)
-	log.Printf("Connected to tcp://%v\n", w.host)
 
 	metricsBuffer := NewMetrics(100000)
 	prev := time.Now().Unix()
@@ -55,7 +53,7 @@ func (w *Writer) Start() {
 
 			// If this is 10th second or it was more than 10 second since last flush
 			if ts%10 == 0 || ts-prev > 10 {
-				go send(sock, ts, metricsBuffer.Data, cnt)
+				go w.send(sock, ts, metricsBuffer.Data, cnt)
 
 				prev = ts
 				cnt = 0
@@ -103,7 +101,7 @@ func (w *Writer) Start() {
 	}
 }
 
-func send(writer io.Writer, ts int64, data map[string]*Metric, rawCount int) {
+func (w *Writer) send(rw io.ReadWriter, ts int64, data map[string]*Metric, rawCount int) {
 	var cnt int
 	var buffer bytes.Buffer
 	t := time.Now()
@@ -126,23 +124,48 @@ func send(writer io.Writer, ts int64, data map[string]*Metric, rawCount int) {
 		}
 
 		if cnt%1000 == 0 {
-			if _, err := writer.Write(buffer.Bytes()); err != nil {
+			if _, err := rw.Write(buffer.Bytes()); err != nil {
 				log.Fatalf("[Writer] Failed to write data: %v, line was: %v",
 					err, buffer.String())
 				continue
 			}
+			var response []byte
+			n, err := rw.Read(response)
+			if err != nil && err != io.EOF {
+				log.Printf("[Writer] Failed to read from tsdb: %v", err)
+			}
+			if n > 0 {
+				log.Printf("[Writer] TSDB says: %v", response)
+			}
 			buffer.Reset()
 		}
 	}
-	if _, err := writer.Write(buffer.Bytes()); err != nil {
+	if _, err := rw.Write(buffer.Bytes()); err != nil {
 		log.Fatalf("[Writer] Failed to write data: %v, line was: %v",
 			err, buffer.String())
 	}
+	var response []byte
+	n, err := rw.Read(response)
+	if err != nil && err != io.EOF {
+		log.Printf("[Writer] Failed to read from tsdb: %v", err)
+	}
+	if n > 0 {
+		log.Printf("[Writer] TSDB says: %v", response)
+	}
 
+	memStats := &runtime.MemStats{}
+	runtime.ReadMemStats(memStats)
 	selfstat := fmt.Sprintf("put pinba.aggregator.count %v %d type=php\n", timestamp, cnt) +
 		fmt.Sprintf("put pinba.aggregator.time %v %3.4f type=php\n", timestamp, time.Since(t).Seconds()) +
-		fmt.Sprintf("put pinba.aggregator.metrics %v %d type=php\n", timestamp, rawCount)
-	writer.Write([]byte(selfstat))
+		fmt.Sprintf("put pinba.aggregator.metrics %v %d type=php\n", timestamp, rawCount) +
+		fmt.Sprintf("put pinba.aggregator.goroutines %v %d type=php\n", timestamp, runtime.NumGoroutine()) +
+		fmt.Sprintf("put pinba.aggregator.memory.allocated %v %d type=php\n", timestamp, memStats.Alloc) +
+		fmt.Sprintf("put pinba.aggregator.memory.mallocs %v %d type=php\n", timestamp, memStats.Mallocs) +
+		fmt.Sprintf("put pinba.aggregator.memory.frees %v %d type=php\n", timestamp, memStats.Frees) +
+		fmt.Sprintf("put pinba.aggregator.memory.heap %v %d type=php\n", timestamp, memStats.HeapAlloc) +
+		fmt.Sprintf("put pinba.aggregator.memory.stack %v %d type=php\n", timestamp, memStats.StackInuse)
+
+	rw.Write([]byte(selfstat))
 
 	log.Printf("[Writer] %v unique metrics sent to OpenTSDB in %v (%v)", cnt, time.Since(t), timestamp)
 }

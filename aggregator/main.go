@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	zmq "github.com/pebbe/zmq4"
 	"log"
 	"runtime"
 	"time"
@@ -21,12 +20,6 @@ func main() {
 	log.Printf("Using %d/%d CPU\n", *cpu, runtime.NumCPU())
 	runtime.GOMAXPROCS(*cpu)
 
-	subscriber, _ := zmq.NewSocket(zmq.SUB)
-	defer subscriber.Close()
-	subscriber.Connect(*in_addr)
-	subscriber.SetSubscribe("request")
-	subscriber.SetSubscribe("timer")
-
 	var metrics = make(chan []*RawMetric, 10000)
 	var buffer = make([]*RawMetric, 0)
 	var metric *RawMetric
@@ -36,11 +29,8 @@ func main() {
 	writer := NewWriter(out_addr, metrics)
 	go writer.Start()
 
-	for {
-		msg, err := subscriber.RecvMessage(0)
-		if err != nil {
-			log.Printf("Failed to recive message: %v", err)
-		}
+	for msg := range receive(*in_addr, []string{"request", "timer"}) {
+		var err error
 		if metric, err = NewRawMetric(msg[0], msg[1]); err != nil {
 			break
 		}

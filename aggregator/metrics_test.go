@@ -14,19 +14,19 @@ func TestNewRawMetrics(t *testing.T) {
 	m, err := NewRawMetric("timer", timer)
 	assert.Nil(t, err)
 	assert.Equal(t, "timer", m.Name)
-	assert.Equal(t, 1421901818, m.Timestamp)
-	//assert.Equal(t, 0.0006, m.Value)
-	assert.Equal(t, 1, m.Count)
-	assert.Equal(t, 5, len(m.Tags))
-	// assert.Equal(t, 0.0, m.Cpu)
+	assert.EqualValues(t, 1421901818, m.Timestamp)
+	//assert.EqualValues(t, 0.0006, m.Value)
+	assert.EqualValues(t, 1, m.Count)
+	assert.EqualValues(t, 5, len(m.Tags))
+	// assert.EqualValues(t, 0.0, m.Cpu)
 
 	m, err = NewRawMetric("request", request)
 	assert.Nil(t, err)
 	assert.Equal(t, "request", m.Name)
-	assert.Equal(t, 1421901938, m.Timestamp)
-	assert.Equal(t, 123, m.Count)
-	assert.Equal(t, 6, len(m.Tags))
-	// assert.Equal(t, 0.01, m.Cpu)
+	assert.EqualValues(t, 1421901938, m.Timestamp)
+	assert.EqualValues(t, 123, m.Count)
+	assert.EqualValues(t, 6, len(m.Tags))
+	// assert.EqualValues(t, 0.01, m.Cpu)
 
 	m, err = NewRawMetric("request", "1421901938 0.013257 123 0.01")
 	assert.Nil(t, err)
@@ -87,36 +87,36 @@ func TestTagsFilter(t *testing.T) {
 }
 
 func TestSum(t *testing.T) {
-	assert.Equal(t, 0, sum([]float64{}))
-	assert.Equal(t, 0, sum([]float64{0}))
-	assert.Equal(t, 1, sum([]float64{0, 1}))
-	assert.Equal(t, 6, sum([]float64{1, 2, 3}))
-	assert.Equal(t, 7, sum([]float64{1.5, 2.5, 3}))
+	assert.EqualValues(t, 0, sum([]float64{}))
+	assert.EqualValues(t, 0, sum([]float64{0}))
+	assert.EqualValues(t, 1, sum([]float64{0, 1}))
+	assert.EqualValues(t, 6, sum([]float64{1, 2, 3}))
+	assert.EqualValues(t, 7, sum([]float64{1.5, 2.5, 3}))
 }
 
 func TestNewMetric(t *testing.T) {
 	metric := NewMetric(123, "test.metric", "aaa=val_1 bbb=val_2")
 	assert.Equal(t, "123", metric.Time)
 	assert.Equal(t, "test.metric", metric.Name)
-	assert.Equal(t, 0, metric.Count)
-	assert.Equal(t, 0, metric.Value())
+	assert.EqualValues(t, 0, metric.Count)
+	assert.EqualValues(t, 0, metric.Value())
 
-	assert.Equal(t, 0, metric.Percentile(0))
-	assert.Equal(t, 0, metric.Percentile(25))
-	assert.Equal(t, 0, metric.Percentile(75))
+	assert.EqualValues(t, 0, metric.Percentile(0))
+	assert.EqualValues(t, 0, metric.Percentile(25))
+	assert.EqualValues(t, 0, metric.Percentile(75))
 }
 
 func TestMetricAdd(t *testing.T) {
 	metric := NewMetric(123, "test.metric", "aaa=val_1 bbb=val_2")
-	assert.Equal(t, 0, metric.Count)
+	assert.EqualValues(t, 0, metric.Count)
 
 	metric.Add(1, 0.1)
 	metric.Add(2, 0.2)
 	metric.Add(3, 0.3)
 
-	assert.Equal(t, 6, metric.Count)
-	assert.Equal(t, 0.3, metric.Max())
-	assert.Equal(t, 0.1, metric.Value())
+	assert.EqualValues(t, 6, metric.Count)
+	assert.EqualValues(t, 0.3, metric.Max())
+	assert.EqualValues(t, 0.1, metric.Value())
 }
 
 func TestMetricPut(t *testing.T) {

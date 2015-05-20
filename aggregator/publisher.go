@@ -69,10 +69,10 @@ func (w *Writer) Start() {
 						continue // no server tag :(
 					}
 
-					tags := m.Tags.Filter(&[]string{"status", "user", "type", "region"})
+					tags := m.Tags.Filter(&[]string{"status", "user", "category", "type", "region"})
 					metricsBuffer.Add(ts, tags, "php.requests", m.Count, m.Value, m.Cpu)
 
-					tags = m.Tags.Filter(&[]string{"script", "status", "user", "type", "region"})
+					tags = m.Tags.Filter(&[]string{"script", "status", "user", "category", "type", "region"})
 					metricsBuffer.Add(ts, tags, "php.requests."+server, m.Count, m.Value, m.Cpu)
 
 				} else if m.Name == "timer" {
@@ -85,10 +85,10 @@ func (w *Writer) Start() {
 						continue // no group tag :(
 					}
 
-					tags := m.Tags.Filter(&[]string{"server", "operation", "type", "region", "ns", "database"})
+					tags := m.Tags.Filter(&[]string{"server", "operation", "category", "type", "region", "ns", "database"})
 					metricsBuffer.Add(ts, tags, "php.timers."+group, m.Count, m.Value, 0)
 
-					tags = m.Tags.Filter(&[]string{"script", "operation", "type", "region", "ns", "database"})
+					tags = m.Tags.Filter(&[]string{"script", "operation", "category", "type", "region", "ns", "database"})
 					metricsBuffer.Add(ts, tags, "php.timers."+server+"."+group, m.Count, m.Value, 0)
 
 				} else {

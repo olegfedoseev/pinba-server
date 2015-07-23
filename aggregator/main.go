@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -11,6 +12,7 @@ var (
 	inAddr  = flag.String("in", "", "incoming socket")
 	outAddr = flag.String("out", "", "out address")
 	cpu     = flag.Int("cpu", 1, "how much cores to use")
+	filter  = flag.String("filter", "request,timer", "filter metrics, accept request and timer, default - both")
 )
 
 func main() {
@@ -26,7 +28,9 @@ func main() {
 
 	ts := int64(time.Now().Unix())
 	buffer := make([]*RawMetric, 0)
-	for msg := range receive(*inAddr, []string{"request", "timer"}) {
+	subscribeTo := strings.Split(*filter, ",")
+	log.Printf("Subscribe to %v", subscribeTo)
+	for msg := range receive(*inAddr, subscribeTo) {
 		metric, err := NewRawMetric(msg[0], msg[1])
 		if err != nil {
 			log.Fatalf("Failed to get raw metrics: %v", err)

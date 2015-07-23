@@ -69,7 +69,7 @@ func (w *Writer) Start() {
 						continue // no server tag :(
 					}
 
-					tags := m.Tags.Filter(&[]string{"status", "user", "category", "type", "region"})
+					tags := m.Tags.Filter(&[]string{"server", "user", "category", "type", "region"})
 					metricsBuffer.Add(ts, tags, "php.requests", m.Count, m.Value, m.Cpu)
 
 					tags = m.Tags.Filter(&[]string{"script", "status", "user", "category", "type", "region"})

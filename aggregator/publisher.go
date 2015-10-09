@@ -28,12 +28,25 @@ func NewWriter(addr *string, src chan []*RawMetric) (w *Writer) {
 func (w *Writer) Start() {
 	log.Printf("Ready!")
 
-	sock, err := net.DialTCP("tcp", nil, w.host)
+	socket, err := net.DialTCP("tcp", nil, w.host)
 	if err != nil {
 		log.Printf("DialTCP: '%v'", err)
 		return
 	}
-	defer sock.Close()
+	defer socket.Close()
+
+	go func(conn *net.TCPConn) {
+		for {
+			response := make([]byte, 256)
+			bytesRead, err := conn.Read(response)
+			if err != nil && err != io.EOF {
+				log.Printf("Failed to read from tsdb: %v", err)
+			}
+			if bytesRead > 0 {
+				log.Printf("TSDB says: %v", string(response))
+			}
+		}
+	}(socket)
 
 	metricsBuffer := NewMetrics(100000)
 	prev := time.Now().Unix()
@@ -53,7 +66,7 @@ func (w *Writer) Start() {
 
 			// If this is 10th second or it was more than 10 second since last flush
 			if ts%10 == 0 || ts-prev > 10 {
-				go w.send(sock, ts, metricsBuffer.Data, cnt)
+				go w.send(socket, ts, metricsBuffer.Data, cnt)
 
 				prev = ts
 				cnt = 0
@@ -130,28 +143,12 @@ func (w *Writer) send(rw io.ReadWriter, ts int64, data map[string]*Metric, rawCo
 					err, buffer.String())
 				continue
 			}
-			var response []byte
-			n, err := rw.Read(response)
-			if err != nil && err != io.EOF {
-				log.Printf("[Writer] Failed to read from tsdb: %v", err)
-			}
-			if n > 0 {
-				log.Printf("[Writer] TSDB says: %v", response)
-			}
 			buffer.Reset()
 		}
 	}
 	if _, err := rw.Write(buffer.Bytes()); err != nil {
 		log.Fatalf("[Writer] Failed to write data: %v, line was: %v",
 			err, buffer.String())
-	}
-	var response []byte
-	n, err := rw.Read(response)
-	if err != nil && err != io.EOF {
-		log.Printf("[Writer] Failed to read from tsdb: %v", err)
-	}
-	if n > 0 {
-		log.Printf("[Writer] TSDB says: %v", response)
 	}
 
 	memStats := &runtime.MemStats{}

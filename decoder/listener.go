@@ -46,13 +46,14 @@ func (c *connection) Read() (ts *int32, data *[]byte, err error) {
 		return nil, nil, err
 	}
 
-	c.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var length int32
 	if err := binary.Read(c.conn, binary.LittleEndian, &length); err != nil {
 		log.Printf("[Connection] Failed to read 'length': %v", err)
 		c.Close()
 		return nil, nil, err
 	}
+
+	c.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var timestamp int32
 	if err := binary.Read(c.conn, binary.LittleEndian, &timestamp); err != nil {
 		log.Printf("[Connection] Failed to read 'timestamp': %v", err)

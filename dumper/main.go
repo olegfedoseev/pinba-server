@@ -82,7 +82,7 @@ func main() {
 
 		request := &Request{}
 		proto.Unmarshal(buf[0:rlen], request)
-		fmt.Printf("%15s %30s: %3.2f %s %v\n",
+		fmt.Printf("%15s %30s: %3.2f %s\n",
 			*request.ServerName,
 			*request.ScriptName,
 			*request.RequestTime,

@@ -105,7 +105,7 @@ func (w *Writer) Start() {
 					metricsBuffer.Add(ts, tags, "php.timers."+server+"."+group, m.Count, m.Value, 0)
 
 				} else {
-					metricsBuffer.Add(ts, m.Tags.String(), m.Name, m.Count, m.Value, 0)
+					metricsBuffer.Add(ts, m.Tags, m.Name, m.Count, m.Value, 0)
 				}
 			}
 			log.Printf("Get %v metrics for %v, appended in %v",

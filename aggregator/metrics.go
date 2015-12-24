@@ -46,9 +46,9 @@ func (t Tags) Get(key string) (string, error) {
 
 var tags_buffer map[string]string
 
-func (t Tags) Filter(filter *[]string) string {
+func (t Tags) Filter(filter *[]string) Tags {
 	sort.Sort(t)
-	var b bytes.Buffer
+	var b Tags
 
 	if tags_buffer == nil {
 		tags_buffer = make(map[string]string, 0)
@@ -56,7 +56,7 @@ func (t Tags) Filter(filter *[]string) string {
 
 	// may only contain alphanumeric characters plus periods '.', slash '/', dash '-', and underscore '_'.
 	re := regexp.MustCompile("[^\\w\\d\\.\\/\\-\\_]")
-	for i, tag := range t {
+	for _, tag := range t {
 		if filter != nil {
 			skip := true
 			for _, f := range *filter {
@@ -72,19 +72,14 @@ func (t Tags) Filter(filter *[]string) string {
 		if tag.Value == "" {
 			continue
 		}
-		if i > 0 && b.Len() > 0 {
-			b.WriteString(" ")
-		}
 
 		if _, ok := tags_buffer[tag.Value]; !ok {
 			tags_buffer[tag.Value] = re.ReplaceAllString(tag.Value, "_")
 		}
 
-		b.WriteString(tag.Key)
-		b.WriteString("=")
-		b.WriteString(tags_buffer[tag.Value])
+		b = append(b, Tag{tag.Key, tags_buffer[tag.Value]})
 	}
-	return b.String()
+	return b
 }
 
 type RawMetric struct {
@@ -154,14 +149,14 @@ func NewMetrics(size int64) (m *Metrics) {
 	return &Metrics{Count: 0, Data: make(map[string]*Metric, size), size: size}
 }
 
-func (m *Metrics) Add(ts int64, tags, name string, count int64, value, cpu float64) {
-	id := name + tags
+func (m *Metrics) Add(ts int64, tags Tags, name string, count int64, value, cpu float64) {
+	id := name + tags.String()
 	if _, ok := m.Data[id]; !ok {
 		m.Data[id] = NewMetric(ts, name, tags)
 	}
 	m.Data[id].Add(count, value)
 
-	id = name + ".cpu" + tags
+	id = name + ".cpu" + tags.String()
 	if _, ok := m.Data[id]; !ok {
 		m.Data[id] = NewMetric(ts, name+".cpu", tags)
 	}
@@ -179,7 +174,7 @@ type Metric struct {
 	Name   string
 	Count  int64
 	Values []float64
-	Tags   string
+	Tags   Tags
 	length int64
 	sorted bool
 }
@@ -191,7 +186,7 @@ func sum(values []float64) (sum float64) {
 	return
 }
 
-func NewMetric(ts int64, name string, tags string) (m *Metric) {
+func NewMetric(ts int64, name string, tags Tags) (m *Metric) {
 	return &Metric{Time: strconv.FormatInt(ts, 10), Name: name, Tags: tags, Count: 0, length: 0}
 }
 
@@ -265,7 +260,7 @@ func (m *Metric) Put(ts, name string, value float64) string {
 	buffer.WriteString(" ")
 	buffer.WriteString(strconv.FormatFloat(value, 'f', 4, 64))
 	buffer.WriteString(" ")
-	buffer.WriteString(m.Tags)
+	buffer.WriteString(m.Tags.String())
 	buffer.WriteString("\n")
 	return buffer.String()
 }

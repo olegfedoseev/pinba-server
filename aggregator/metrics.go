@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"bosun.org/opentsdb"
 )
 
 type Tag struct {
@@ -80,6 +82,16 @@ func (t Tags) Filter(filter *[]string) Tags {
 		b = append(b, Tag{tag.Key, tags_buffer[tag.Value]})
 	}
 	return b
+}
+
+func (t Tags) TagSet() opentsdb.TagSet {
+	sort.Sort(t)
+	ts := make(opentsdb.TagSet)
+
+	for _, tag := range t {
+		ts[tag.Key] = tag.Value
+	}
+	return ts
 }
 
 type RawMetric struct {

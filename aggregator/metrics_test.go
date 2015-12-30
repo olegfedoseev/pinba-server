@@ -77,13 +77,13 @@ func TestTagsGetTag(t *testing.T) {
 
 func TestTagsFilter(t *testing.T) {
 	tags := Tags{Tag{"aaa", "val:1"}, Tag{"bbb", "valы2"}, Tag{"ccc", "val3"}}
-	assert.Equal(t, "aaa=val_1 bbb=val_2", tags.Filter(&[]string{"aaa", "bbb"}))
+	assert.Equal(t, "aaa=val_1 bbb=val_2", tags.Filter(&[]string{"aaa", "bbb"}).String())
 
 	tags = Tags{Tag{"bbb", "val2"}, Tag{"aaa", "val1"}, Tag{"ccc", "val3"}}
-	assert.Equal(t, "aaa=val1 bbb=val2", tags.Filter(&[]string{"aaa", "bbb"}))
+	assert.Equal(t, "aaa=val1 bbb=val2", tags.Filter(&[]string{"aaa", "bbb"}).String())
 
 	tags = Tags{Tag{"bbb", "val2"}, Tag{"aaa", ""}, Tag{"ccc", "val3"}}
-	assert.Equal(t, "bbb=val2", tags.Filter(&[]string{"aaa", "bbb"}))
+	assert.Equal(t, "bbb=val2", tags.Filter(&[]string{"aaa", "bbb"}).String())
 }
 
 func TestSum(t *testing.T) {
@@ -95,7 +95,7 @@ func TestSum(t *testing.T) {
 }
 
 func TestNewMetric(t *testing.T) {
-	metric := NewMetric(123, "test.metric", "aaa=val_1 bbb=val_2")
+	metric := NewMetric(123, "test.metric", Tags{Tag{"aaa", "val_1"}, Tag{"bbb", "val_2"}})
 	assert.Equal(t, "123", metric.Time)
 	assert.Equal(t, "test.metric", metric.Name)
 	assert.EqualValues(t, 0, metric.Count)
@@ -107,7 +107,7 @@ func TestNewMetric(t *testing.T) {
 }
 
 func TestMetricAdd(t *testing.T) {
-	metric := NewMetric(123, "test.metric", "aaa=val_1 bbb=val_2")
+	metric := NewMetric(123, "test.metric", Tags{Tag{"aaa", "val_1"}, Tag{"bbb", "val_2"}})
 	assert.EqualValues(t, 0, metric.Count)
 
 	metric.Add(1, 0.1)
@@ -120,14 +120,14 @@ func TestMetricAdd(t *testing.T) {
 }
 
 func TestMetricPut(t *testing.T) {
-	metric := NewMetric(123, "test.metric", "aaa=val_1 bbb=val_2")
+	metric := NewMetric(123, "test.metric", Tags{Tag{"aaa", "val_1"}, Tag{"bbb", "val_2"}})
 
 	assert.Equal(t, "put test.metric.p95 123 123.4560 aaa=val_1 bbb=val_2\n",
 		metric.Put("123", ".p95", 123.456))
 }
 
 func TestMetricPercentile(t *testing.T) {
-	metric := NewMetric(123, "test.metric", "aaa=val_1 bbb=val_2")
+	metric := NewMetric(123, "test.metric", Tags{Tag{"aaa", "val_1"}, Tag{"bbb", "val_2"}})
 
 	// 1.3,2.2,2.7,3.1,3.3,3.7
 

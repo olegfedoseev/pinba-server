@@ -1,52 +1,33 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
+	"net/url"
+
+	"bosun.org/opentsdb"
+	"bosun.org/collect"
 )
 
 type Writer struct {
 	input chan []*RawMetric
-	host  *net.TCPAddr
+	addr *string
 }
 
 func NewWriter(addr *string, src chan []*RawMetric) (w *Writer) {
-	host, err := net.ResolveTCPAddr("tcp4", *addr)
+	_, err := net.ResolveTCPAddr("tcp4", *addr)
 	if err != nil {
 		log.Fatalf("ResolveTCPAddr: '%v'", err)
 	}
-	return &Writer{input: src, host: host}
+	return &Writer{input: src, addr: addr}
 }
 
 func (w *Writer) Start() {
 	log.Printf("Ready!")
-
-	socket, err := net.DialTCP("tcp", nil, w.host)
-	if err != nil {
-		log.Printf("DialTCP: '%v'", err)
-		return
-	}
-	defer socket.Close()
-
-	go func(conn *net.TCPConn) {
-		for {
-			response := make([]byte, 256)
-			bytesRead, err := conn.Read(response)
-			if err != nil && err != io.EOF {
-				log.Printf("Failed to read from tsdb: %v", err)
-			}
-			if bytesRead > 0 {
-				log.Printf("TSDB says: %v", string(response))
-			}
-		}
-	}(socket)
 
 	metricsBuffer := NewMetrics(100000)
 	prev := time.Now().Unix()
@@ -66,7 +47,7 @@ func (w *Writer) Start() {
 
 			// If this is 10th second or it was more than 10 second since last flush
 			if ts%10 == 0 || ts-prev > 10 {
-				go w.send(socket, ts, metricsBuffer.Data, cnt)
+				go w.send(ts, metricsBuffer.Data, cnt)
 
 				prev = ts
 				cnt = 0
@@ -105,7 +86,7 @@ func (w *Writer) Start() {
 					metricsBuffer.Add(ts, tags, "php.timers."+server+"."+group, m.Count, m.Value, 0)
 
 				} else {
-					metricsBuffer.Add(ts, m.Tags.String(), m.Name, m.Count, m.Value, 0)
+					metricsBuffer.Add(ts, m.Tags, m.Name, m.Count, m.Value, 0)
 				}
 			}
 			log.Printf("Get %v metrics for %v, appended in %v",
@@ -114,56 +95,68 @@ func (w *Writer) Start() {
 	}
 }
 
-func (w *Writer) send(rw io.ReadWriter, ts int64, data map[string]*Metric, rawCount int) {
-	var cnt int
-	var buffer bytes.Buffer
+func (w *Writer) send(ts int64, data map[string]*Metric, rawCount int) (error) {
+	var dps opentsdb.MultiDataPoint
+	batchSize := 1000
 	t := time.Now()
-	timestamp := strconv.FormatInt(ts, 10)
+	putUrl := (&url.URL{Scheme: "http", Host: *w.addr, Path: "api/put"}).String()
 
 	for _, m := range data {
 		if strings.HasSuffix(m.Name, ".cpu") {
 			cpu := m.Percentile(95)
 			if cpu > 0 { // if cpu usage is zero, don't send it, it's not interesting
-				buffer.WriteString(m.Put(timestamp, "", cpu))
-				cnt += 1
+				dps = append(dps, &opentsdb.DataPoint{m.Name, ts, cpu, m.Tags.TagSet()})
 			}
 		} else {
-			buffer.WriteString(m.Put(timestamp, ".rps", float64(m.Count)/10))
-			buffer.WriteString(m.Put(timestamp, ".p25", m.Percentile(25)))
-			buffer.WriteString(m.Put(timestamp, ".p50", m.Percentile(50)))
-			buffer.WriteString(m.Put(timestamp, ".p75", m.Percentile(75)))
-			buffer.WriteString(m.Put(timestamp, ".p95", m.Percentile(95)))
-			buffer.WriteString(m.Put(timestamp, ".max", m.Max()))
-			cnt += 6
-		}
-
-		if cnt%1000 == 0 {
-			if _, err := rw.Write(buffer.Bytes()); err != nil {
-				log.Fatalf("[Writer] Failed to write data: %v, line was: %v",
-					err, buffer.String())
-				continue
-			}
-			buffer.Reset()
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".rps", ts, float64(m.Count)/10, m.Tags.TagSet()})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p25", ts, m.Percentile(25), m.Tags.TagSet()})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p50", ts, m.Percentile(50), m.Tags.TagSet()})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p75", ts, m.Percentile(75), m.Tags.TagSet()})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p95", ts, m.Percentile(95), m.Tags.TagSet()})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".max", ts, m.Max(), m.Tags.TagSet()})
 		}
 	}
-	if _, err := rw.Write(buffer.Bytes()); err != nil {
-		log.Fatalf("[Writer] Failed to write data: %v, line was: %v",
-			err, buffer.String())
+
+	total := 0
+	for len(dps) > 0 {
+		count := len(dps)
+		if len(dps) > batchSize {
+			count = batchSize
+		}
+		putResp, err := collect.SendDataPoints(dps[:count], putUrl)
+		if err != nil {
+			return err
+		}
+		defer putResp.Body.Close()
+
+		if putResp.StatusCode != 204 {
+			return fmt.Errorf("Non 204 status code from opentsdb: %d", putResp.StatusCode)
+		}
+		dps = dps[count:]
+		total += count
 	}
 
 	memStats := &runtime.MemStats{}
 	runtime.ReadMemStats(memStats)
-	selfstat := fmt.Sprintf("put pinba.aggregator.count %v %d type=php\n", timestamp, cnt) +
-		fmt.Sprintf("put pinba.aggregator.time %v %3.4f type=php\n", timestamp, time.Since(t).Seconds()) +
-		fmt.Sprintf("put pinba.aggregator.metrics %v %d type=php\n", timestamp, rawCount) +
-		fmt.Sprintf("put pinba.aggregator.goroutines %v %d type=php\n", timestamp, runtime.NumGoroutine()) +
-		fmt.Sprintf("put pinba.aggregator.memory.allocated %v %d type=php\n", timestamp, memStats.Alloc) +
-		fmt.Sprintf("put pinba.aggregator.memory.mallocs %v %d type=php\n", timestamp, memStats.Mallocs) +
-		fmt.Sprintf("put pinba.aggregator.memory.frees %v %d type=php\n", timestamp, memStats.Frees) +
-		fmt.Sprintf("put pinba.aggregator.memory.heap %v %d type=php\n", timestamp, memStats.HeapAlloc) +
-		fmt.Sprintf("put pinba.aggregator.memory.stack %v %d type=php\n", timestamp, memStats.StackInuse)
 
-	rw.Write([]byte(selfstat))
+	typeTag := opentsdb.TagSet{"type": "php"}
 
-	log.Printf("[Writer] %v unique metrics sent to OpenTSDB in %v (%v)", cnt, time.Since(t), timestamp)
+	putResp, err := collect.SendDataPoints(opentsdb.MultiDataPoint{
+		&opentsdb.DataPoint{"pinba.aggregator.count", ts, total, typeTag},
+		&opentsdb.DataPoint{"pinba.aggregator.time", ts, time.Since(t).Seconds(), typeTag},
+		&opentsdb.DataPoint{"pinba.aggregator.metrics", ts, rawCount, typeTag},
+		&opentsdb.DataPoint{"pinba.aggregator.goroutines", ts, runtime.NumGoroutine(), typeTag},
+		&opentsdb.DataPoint{"pinba.aggregator.memory.allocated", ts, memStats.Alloc, typeTag},
+		&opentsdb.DataPoint{"pinba.aggregator.memory.mallocs", ts, memStats.Mallocs, typeTag},
+		&opentsdb.DataPoint{"pinba.aggregator.memory.frees", ts, memStats.Frees, typeTag},
+		&opentsdb.DataPoint{"pinba.aggregator.memory.heap", ts, memStats.HeapAlloc, typeTag},
+		&opentsdb.DataPoint{"pinba.aggregator.memory.stack", ts, memStats.StackInuse, typeTag},
+	}, putUrl)
+	if err != nil {
+		return err
+	}
+	defer putResp.Body.Close()
+
+	log.Printf("[Writer] %v unique metrics sent to OpenTSDB in %v (%v)", total, time.Since(t), ts)
+	return nil
 }

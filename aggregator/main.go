@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"log"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -11,17 +10,13 @@ import (
 var (
 	inAddr  = flag.String("in", "", "incoming socket")
 	outAddr = flag.String("out", "", "out address")
-	cpu     = flag.Int("cpu", 1, "how much cores to use")
 	filter  = flag.String("filter", "request,timer", "filter metrics, accept request and timer, default - both")
 	prefix  = flag.String("prefix", "php", "prefix for metrics names, default - php")
 )
 
 func main() {
 	flag.Parse()
-
 	log.Printf("Pinba aggregator reading from %s\n", *inAddr)
-	log.Printf("Using %d/%d CPU\n", *cpu, runtime.NumCPU())
-	runtime.GOMAXPROCS(*cpu)
 
 	var metrics = make(chan []*RawMetric, 60) // 60 seconds buffer
 	writer := NewWriter(*prefix, outAddr, metrics)

@@ -4,7 +4,6 @@ import (
 	"flag"
 	zmq "github.com/pebbe/zmq4"
 	"log"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -12,7 +11,6 @@ import (
 var (
 	in_addr  = flag.String("in", "", "incoming socket")
 	out_addr = flag.String("out", "", "outcoming socket")
-	cpu      = flag.Int("cpu", 1, "how much cores to use")
 )
 
 func worker(source <-chan RawData, decoded chan<- string, timers chan<- time.Duration) {
@@ -35,10 +33,7 @@ func worker(source <-chan RawData, decoded chan<- string, timers chan<- time.Dur
 
 func main() {
 	flag.Parse()
-
 	log.Printf("Pinba decoder listening on %s and sending to %s\n", *in_addr, *out_addr)
-	log.Printf("Using %d/%d CPU\n", *cpu, runtime.NumCPU())
-	runtime.GOMAXPROCS(*cpu)
 
 	listener := NewListener(in_addr)
 

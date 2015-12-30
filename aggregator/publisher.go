@@ -4,26 +4,27 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"runtime"
 	"strings"
 	"time"
-	"net/url"
 
-	"bosun.org/opentsdb"
 	"bosun.org/collect"
+	"bosun.org/opentsdb"
 )
 
 type Writer struct {
-	input chan []*RawMetric
-	addr *string
+	input  chan []*RawMetric
+	addr   *string
+	prefix string
 }
 
-func NewWriter(addr *string, src chan []*RawMetric) (w *Writer) {
+func NewWriter(prefix string, addr *string, src chan []*RawMetric) (w *Writer) {
 	_, err := net.ResolveTCPAddr("tcp4", *addr)
 	if err != nil {
 		log.Fatalf("ResolveTCPAddr: '%v'", err)
 	}
-	return &Writer{input: src, addr: addr}
+	return &Writer{prefix: prefix, input: src, addr: addr}
 }
 
 func (w *Writer) Start() {
@@ -57,33 +58,28 @@ func (w *Writer) Start() {
 			for _, m := range input {
 				ts := m.Timestamp * 1000
 				server, _ := m.Tags.Get("server")
+				if server == "" || server == "unknown" {
+					continue // no server tag :(
+				}
 
 				if m.Name == "request" {
-					if server == "" || server == "unknown" {
-						continue // no server tag :(
-					}
-
 					tags := m.Tags.Filter(&[]string{"server", "user", "category", "type", "region"})
-					metricsBuffer.Add(ts, tags, "php.requests", m.Count, m.Value, m.Cpu)
+					metricsBuffer.Add(ts, tags, w.prefix+".requests", m.Count, m.Value, m.Cpu)
 
 					tags = m.Tags.Filter(&[]string{"script", "status", "user", "category", "type", "region"})
-					metricsBuffer.Add(ts, tags, "php.requests."+server, m.Count, m.Value, m.Cpu)
+					metricsBuffer.Add(ts, tags, w.prefix+".requests."+server, m.Count, m.Value, m.Cpu)
 
 				} else if m.Name == "timer" {
-					if server == "" || server == "unknown" {
-						continue // no server tag :(
-					}
-
 					group, err := m.Tags.Get("group")
 					if err != nil {
 						continue // no group tag :(
 					}
 
 					tags := m.Tags.Filter(&[]string{"server", "operation", "category", "type", "region", "ns", "database"})
-					metricsBuffer.Add(ts, tags, "php.timers."+group, m.Count, m.Value, 0)
+					metricsBuffer.Add(ts, tags, w.prefix+".timers."+group, m.Count, m.Value, 0)
 
 					tags = m.Tags.Filter(&[]string{"script", "operation", "category", "type", "region", "ns", "database"})
-					metricsBuffer.Add(ts, tags, "php.timers."+server+"."+group, m.Count, m.Value, 0)
+					metricsBuffer.Add(ts, tags, w.prefix+".timers."+server+"."+group, m.Count, m.Value, 0)
 
 				} else {
 					metricsBuffer.Add(ts, m.Tags, m.Name, m.Count, m.Value, 0)
@@ -95,7 +91,7 @@ func (w *Writer) Start() {
 	}
 }
 
-func (w *Writer) send(ts int64, data map[string]*Metric, rawCount int) (error) {
+func (w *Writer) send(ts int64, data map[string]*Metric, rawCount int) error {
 	var dps opentsdb.MultiDataPoint
 	batchSize := 1000
 	t := time.Now()
@@ -108,7 +104,7 @@ func (w *Writer) send(ts int64, data map[string]*Metric, rawCount int) (error) {
 				dps = append(dps, &opentsdb.DataPoint{m.Name, ts, cpu, m.Tags.TagSet()})
 			}
 		} else {
-			dps = append(dps, &opentsdb.DataPoint{m.Name + ".rps", ts, float64(m.Count)/10, m.Tags.TagSet()})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".rps", ts, float64(m.Count) / 10, m.Tags.TagSet()})
 			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p25", ts, m.Percentile(25), m.Tags.TagSet()})
 			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p50", ts, m.Percentile(50), m.Tags.TagSet()})
 			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p75", ts, m.Percentile(75), m.Tags.TagSet()})
@@ -139,7 +135,7 @@ func (w *Writer) send(ts int64, data map[string]*Metric, rawCount int) (error) {
 	memStats := &runtime.MemStats{}
 	runtime.ReadMemStats(memStats)
 
-	typeTag := opentsdb.TagSet{"type": "php"}
+	typeTag := opentsdb.TagSet{"type": w.prefix}
 
 	putResp, err := collect.SendDataPoints(opentsdb.MultiDataPoint{
 		&opentsdb.DataPoint{"pinba.aggregator.count", ts, total, typeTag},

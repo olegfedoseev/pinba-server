@@ -13,6 +13,7 @@ var (
 	outAddr = flag.String("out", "", "out address")
 	cpu     = flag.Int("cpu", 1, "how much cores to use")
 	filter  = flag.String("filter", "request,timer", "filter metrics, accept request and timer, default - both")
+	prefix  = flag.String("prefix", "php", "prefix for metrics names, default - php")
 )
 
 func main() {
@@ -23,7 +24,7 @@ func main() {
 	runtime.GOMAXPROCS(*cpu)
 
 	var metrics = make(chan []*RawMetric, 60) // 60 seconds buffer
-	writer := NewWriter(outAddr, metrics)
+	writer := NewWriter(*prefix, outAddr, metrics)
 	go writer.Start()
 
 	ts := int64(time.Now().Unix())

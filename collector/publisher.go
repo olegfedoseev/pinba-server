@@ -14,13 +14,12 @@ type client chan []byte
 
 type Publisher struct {
 	Server  *net.TCPListener
-	Data    chan []byte
 	clients map[string]client
 	packets int
 	timer   time.Duration
 }
 
-func NewPublisher(out_addr *string, data chan []byte) (p *Publisher) {
+func NewPublisher(out_addr *string) (p *Publisher) {
 	addr, err := net.ResolveTCPAddr("tcp", *out_addr)
 	if err != nil {
 		log.Fatalf("[Publisher] Can't resolve address: '%v'", err)
@@ -34,7 +33,6 @@ func NewPublisher(out_addr *string, data chan []byte) (p *Publisher) {
 	clients := make(map[string]client, 0)
 	p = &Publisher{
 		Server:  sock,
-		Data:    data,
 		clients: clients,
 	}
 	return p
@@ -97,11 +95,11 @@ func (p *Publisher) sender() {
 	}
 }
 
-func (p *Publisher) Start() {
+func (p *Publisher) Start(stream chan []byte) {
 	go p.sender()
 
 	var buffer bytes.Buffer
-	idle_since := time.Now()
+	idleTime := time.Now()
 	ticker := time.NewTicker(time.Second)
 	counter := 0
 	for {
@@ -109,10 +107,10 @@ func (p *Publisher) Start() {
 		case now := <-ticker.C:
 			if counter == 0 {
 				log.Printf("[Publisher] No packets for %.f sec (since %v)!\n",
-					time.Now().Sub(idle_since).Seconds(), idle_since.Format("15:04:05"))
+					time.Now().Sub(idleTime).Seconds(), idleTime.Format("15:04:05"))
 				continue
 			}
-			idle_since = now
+			idleTime = now
 
 			if len(p.clients) > 0 {
 				for _, c := range p.clients {
@@ -129,11 +127,11 @@ func (p *Publisher) Start() {
 				log.Printf("[Publisher] Got %d packets, but no clients to send to!\n", counter)
 			}
 
-			buffer = *bytes.NewBuffer([]byte{})
+			buffer.Reset()
 			counter = 0
 
 		// Read from channel of decoded packets
-		case data := <-p.Data:
+		case data := <-stream:
 			n := int32(len(data))
 			if err := binary.Write(&buffer, binary.LittleEndian, n); err != nil {
 				fmt.Printf("Failed to write data length: %v", err)

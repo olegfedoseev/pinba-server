@@ -6,48 +6,40 @@ import (
 )
 
 type Listener struct {
-	Data   chan []byte
 	server *net.UDPConn
 }
 
-func NewListener(in_addr *string) (l *Listener) {
+func NewListener(in_addr *string) (*Listener, error) {
 	addr, err := net.ResolveUDPAddr("udp4", *in_addr)
 	if err != nil {
-		log.Fatalf("[Listener] Can't resolve address: '%v'", err)
+		return nil, err
 	}
 	sock, err := net.ListenUDP("udp4", addr)
 	if err != nil {
-		log.Fatalf("[Listener] Can't open UDP socket: '%v'", err)
+		return nil, err
 	}
-	log.Printf("[Listener] Start listening on udp://%v\n", *in_addr)
 
-	l = &Listener{
-		server: sock,
-		Data:   make(chan []byte, 10000),
-	}
-	return l
+	return &Listener{server: sock}, nil
 }
 
-func (l *Listener) Start() {
-	go func() {
-		defer l.server.Close()
-		for {
-			var buf = make([]byte, 65536)
-			rlen, _, err := l.server.ReadFromUDP(buf)
-			if err != nil {
-				log.Fatalf("[Listener] Error on sock.ReadFrom, %v", err)
-			}
-			if rlen == 0 {
-				continue
-			}
-
-			select {
-				case l.Data <- buf[0:rlen]:
-					// all good
-				default:
-					// chan is full, crap
-					log.Printf("[Listener] Channel is full, can't send data")
-			}
+func (l *Listener) Start(stream chan []byte) {
+	defer l.server.Close()
+	for {
+		var buf = make([]byte, 65536)
+		rlen, _, err := l.server.ReadFromUDP(buf)
+		if err != nil {
+			log.Fatalf("[Listener] Error on sock.ReadFrom, %v", err)
 		}
-	}()
+		if rlen == 0 {
+			continue
+		}
+
+		select {
+		case stream <- buf[0:rlen]:
+			// all good
+		default:
+			// chan is full, crap
+			log.Printf("[Listener] Channel is full, can't send data")
+		}
+	}
 }

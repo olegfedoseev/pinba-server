@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"net/url"
 	"runtime"
 	"strings"
@@ -15,12 +19,12 @@ import (
 
 type Writer struct {
 	input  chan []*RawMetric
-	addr   *string
+	addr   string
 	prefix string
 }
 
-func NewWriter(prefix string, addr *string, src chan []*RawMetric) (w *Writer) {
-	_, err := net.ResolveTCPAddr("tcp4", *addr)
+func NewWriter(prefix string, addr string, src chan []*RawMetric) (w *Writer) {
+	_, err := net.ResolveTCPAddr("tcp4", addr)
 	if err != nil {
 		log.Fatalf("ResolveTCPAddr: '%v'", err)
 	}
@@ -46,6 +50,36 @@ func (w *Writer) Start() {
 			ts := input[0].Timestamp
 			cnt += len(input)
 
+			for _, m := range input {
+				ts := m.Timestamp * 1000
+				server, _ := m.Tags.Get("server")
+				if server == "" || server == "unknown" {
+					continue // no server tag :(
+				}
+
+				if m.Name == "request" {
+					tags := m.Tags.Filter([]string{"server", "user", "category", "type", "region"})
+					metricsBuffer.Add(ts, tags, w.prefix+".requests", m.Count, m.Value, m.Cpu)
+
+					tags = m.Tags.Filter([]string{"script", "status", "user", "category", "type", "region"})
+					metricsBuffer.Add(ts, tags, w.prefix+".requests."+server, m.Count, m.Value, m.Cpu)
+
+				} else if m.Name == "timer" {
+					group, err := m.Tags.Get("group")
+					if err != nil {
+						continue // no group tag :(
+					}
+
+					tags := m.Tags.Filter([]string{"server", "operation", "category", "type", "region", "ns", "database"})
+					metricsBuffer.Add(ts, tags, w.prefix+".timers."+group, m.Count, m.Value, 0)
+
+					tags = m.Tags.Filter([]string{"script", "operation", "category", "type", "region", "ns", "database"})
+					metricsBuffer.Add(ts, tags, w.prefix+".timers."+server+"."+group, m.Count, m.Value, 0)
+
+				} else {
+					metricsBuffer.Add(ts, m.Tags, m.Name, m.Count, m.Value, 0)
+				}
+			}
 			// If this is 10th second or it was more than 10 second since last flush
 			if ts%10 == 0 || ts-prev > 10 {
 				go w.send(ts, metricsBuffer.Data, cnt)
@@ -55,36 +89,6 @@ func (w *Writer) Start() {
 				metricsBuffer.Reset()
 			}
 
-			for _, m := range input {
-				ts := m.Timestamp * 1000
-				server, _ := m.Tags.Get("server")
-				if server == "" || server == "unknown" {
-					continue // no server tag :(
-				}
-
-				if m.Name == "request" {
-					tags := m.Tags.Filter(&[]string{"server", "user", "category", "type", "region"})
-					metricsBuffer.Add(ts, tags, w.prefix+".requests", m.Count, m.Value, m.Cpu)
-
-					tags = m.Tags.Filter(&[]string{"script", "status", "user", "category", "type", "region"})
-					metricsBuffer.Add(ts, tags, w.prefix+".requests."+server, m.Count, m.Value, m.Cpu)
-
-				} else if m.Name == "timer" {
-					group, err := m.Tags.Get("group")
-					if err != nil {
-						continue // no group tag :(
-					}
-
-					tags := m.Tags.Filter(&[]string{"server", "operation", "category", "type", "region", "ns", "database"})
-					metricsBuffer.Add(ts, tags, w.prefix+".timers."+group, m.Count, m.Value, 0)
-
-					tags = m.Tags.Filter(&[]string{"script", "operation", "category", "type", "region", "ns", "database"})
-					metricsBuffer.Add(ts, tags, w.prefix+".timers."+server+"."+group, m.Count, m.Value, 0)
-
-				} else {
-					metricsBuffer.Add(ts, m.Tags, m.Name, m.Count, m.Value, 0)
-				}
-			}
 			log.Printf("Get %v metrics for %v, appended in %v",
 				len(input), input[0].Timestamp, time.Now().Sub(t))
 		}
@@ -95,21 +99,21 @@ func (w *Writer) send(ts int64, data map[string]*Metric, rawCount int) error {
 	var dps opentsdb.MultiDataPoint
 	batchSize := 1000
 	t := time.Now()
-	putUrl := (&url.URL{Scheme: "http", Host: *w.addr, Path: "api/put"}).String()
+	putUrl := (&url.URL{Scheme: "http", Host: w.addr, Path: "api/put"}).String()
 
 	for _, m := range data {
 		if strings.HasSuffix(m.Name, ".cpu") {
 			cpu := m.Percentile(95)
 			if cpu > 0 { // if cpu usage is zero, don't send it, it's not interesting
-				dps = append(dps, &opentsdb.DataPoint{m.Name, ts, cpu, m.Tags.TagSet()})
+				dps = append(dps, &opentsdb.DataPoint{m.Name, ts, cpu, m.Tags})
 			}
 		} else {
-			dps = append(dps, &opentsdb.DataPoint{m.Name + ".rps", ts, float64(m.Count) / 10, m.Tags.TagSet()})
-			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p25", ts, m.Percentile(25), m.Tags.TagSet()})
-			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p50", ts, m.Percentile(50), m.Tags.TagSet()})
-			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p75", ts, m.Percentile(75), m.Tags.TagSet()})
-			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p95", ts, m.Percentile(95), m.Tags.TagSet()})
-			dps = append(dps, &opentsdb.DataPoint{m.Name + ".max", ts, m.Max(), m.Tags.TagSet()})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".rps", ts, float64(m.Count) / 10, m.Tags})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p25", ts, m.Percentile(25), m.Tags})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p50", ts, m.Percentile(50), m.Tags})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p75", ts, m.Percentile(75), m.Tags})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".p95", ts, m.Percentile(95), m.Tags})
+			dps = append(dps, &opentsdb.DataPoint{m.Name + ".max", ts, m.Max(), m.Tags})
 		}
 	}
 

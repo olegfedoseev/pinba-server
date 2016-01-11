@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"net"
 )
 
@@ -9,8 +8,8 @@ type Listener struct {
 	server *net.UDPConn
 }
 
-func NewListener(in_addr *string) (*Listener, error) {
-	addr, err := net.ResolveUDPAddr("udp4", *in_addr)
+func NewListener(inAddr *string) (*Listener, error) {
+	addr, err := net.ResolveUDPAddr("udp4", *inAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -26,20 +25,16 @@ func (l *Listener) Start(stream chan []byte) {
 	defer l.server.Close()
 	for {
 		var buf = make([]byte, 65536)
-		rlen, _, err := l.server.ReadFromUDP(buf)
-		if err != nil {
-			log.Fatalf("[Listener] Error on sock.ReadFrom, %v", err)
-		}
-		if rlen == 0 {
+		n, _, err := l.server.ReadFromUDP(buf)
+		if err != nil || n == 0 {
 			continue
 		}
 
 		select {
-		case stream <- buf[0:rlen]:
+		case stream <- buf[0:n]:
 			// all good
 		default:
-			// chan is full, crap
-			log.Printf("[Listener] Channel is full, can't send data")
+			// chan is full
 		}
 	}
 }

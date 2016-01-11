@@ -19,23 +19,22 @@ type Publisher struct {
 	timer   time.Duration
 }
 
-func NewPublisher(out_addr *string) (p *Publisher) {
-	addr, err := net.ResolveTCPAddr("tcp", *out_addr)
+func NewPublisher(outAddr *string) (*Publisher, error) {
+	addr, err := net.ResolveTCPAddr("tcp", *outAddr)
 	if err != nil {
-		log.Fatalf("[Publisher] Can't resolve address: '%v'", err)
+		return nil, err
 	}
-	sock, err := net.ListenTCP("tcp", addr)
+	listener, err := net.ListenTCP("tcp", addr)
 	if err != nil {
-		log.Fatalf("[Publisher] Can't open TCP socket: '%v'", err)
+		return nil, err
 	}
-	log.Printf("[Publisher] Start listening on tcp://%v\n", *out_addr)
 
 	clients := make(map[string]client, 0)
-	p = &Publisher{
-		Server:  sock,
+	p := &Publisher{
+		Server:  listener,
 		clients: clients,
 	}
-	return p
+	return p, nil
 }
 
 func (p *Publisher) sender() {

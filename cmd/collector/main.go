@@ -5,24 +5,27 @@ import (
 	"log"
 )
 
-var (
-	in_addr  = flag.String("in", "", "incoming socket")
-	out_addr = flag.String("out", "", "outcoming socket")
-)
-
 func main() {
+	var (
+		inAddr  = flag.String("in", "", "incoming socket")
+		outAddr = flag.String("out", "", "outcoming socket")
+	)
 	flag.Parse()
-	log.Printf("Pinba collector listening on %s and send to %s\n", *in_addr, *out_addr)
+	log.Printf("Pinba collector listening on %s and send to %s\n", *inAddr, *outAddr)
 
 	stream := make(chan []byte, 10000)
 
-	listener, err := NewListener(in_addr)
+	listener, err := NewListener(inAddr)
 	if err != nil {
-		log.Fatalf("[Listener] Can't resolve address: '%v'", err)
+		log.Fatalf("Can't resolve address: '%v'", err)
 	}
-	log.Printf("[Listener] Start listening on udp://%v\n", *in_addr)
+	log.Printf("Start listening on udp://%v\n", *inAddr)
 	go listener.Start(stream)
 
-	publisher := NewPublisher(out_addr)
+	publisher, err := NewPublisher(outAddr)
+	if err != nil {
+		log.Fatalf("Can't resolve address: '%v'", err)
+	}
+	log.Printf("Start listening on tcp://%v\n", *outAddr)
 	publisher.Start(stream)
 }

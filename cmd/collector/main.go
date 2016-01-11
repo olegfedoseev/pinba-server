@@ -15,12 +15,12 @@ func main() {
 
 	stream := make(chan []byte, 10000)
 
-	listener, err := NewListener(inAddr)
+	pinbaServer, err := NewPinbaServer(inAddr)
 	if err != nil {
 		log.Fatalf("Can't resolve address: '%v'", err)
 	}
 	log.Printf("Start listening on udp://%v\n", *inAddr)
-	go listener.Start(stream)
+	go pinbaServer.Listen(stream)
 
 	publisher, err := NewPublisher(outAddr)
 	if err != nil {

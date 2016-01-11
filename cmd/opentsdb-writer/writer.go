@@ -1,13 +1,9 @@
 package main
 
 import (
-	"bytes"
-	"compress/gzip"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"net/url"
 	"runtime"
 	"strings"

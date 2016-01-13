@@ -1,20 +1,16 @@
 package main
 
 import (
-	"bytes"
-	"compress/zlib"
-	"encoding/binary"
-	"fmt"
 	"log"
 	"net"
 	"time"
 )
 
-type client chan []byte
+type clientChan chan []byte
 
 type Publisher struct {
 	Server  *net.TCPListener
-	clients map[string]client
+	clients map[string]clientChan
 	packets int
 	timer   time.Duration
 }
@@ -29,7 +25,7 @@ func NewPublisher(outAddr *string) (*Publisher, error) {
 		return nil, err
 	}
 
-	clients := make(map[string]client, 0)
+	clients := make(map[string]clientChan, 0)
 	p := &Publisher{
 		Server:  listener,
 		clients: clients,
@@ -46,50 +42,26 @@ func (p *Publisher) sender() {
 			log.Fatal(err)
 		}
 
-		addr := fmt.Sprintf("%v", conn.RemoteAddr())
-		p.clients[addr] = make(chan []byte, 10)
-		log.Printf("[Publisher] Look's like we got customer! He's from %v", addr)
+		p.clients[conn.RemoteAddr().String()] = make(chan []byte, 10)
+		log.Printf("Look's like we got customer! He's from %v", conn.RemoteAddr())
 
 		// Handle the connection in a new goroutine.
-		go func(c *net.TCPConn) {
-			defer c.Close()
-			c.SetNoDelay(false)
+		go func(client *net.TCPConn) {
+			defer client.Close()
+			client.SetNoDelay(false)
 
 			for {
-				data := <-p.clients[addr]
-				t := time.Now()
+				data := <-p.clients[client.RemoteAddr().String()]
 
-				var b bytes.Buffer
-				w := zlib.NewWriter(&b)
-				w.Write(data)
-				w.Close()
-
-				var length int32 = int32(b.Len())
-				var ts int32 = int32(time.Now().Unix())
-
-				header := new(bytes.Buffer)
-				if err := binary.Write(header, binary.LittleEndian, length); err != nil {
-					fmt.Printf("Failed to Write header length: %v", err)
-				}
-				if err := binary.Write(header, binary.LittleEndian, ts); err != nil {
-					fmt.Printf("Faield to Write header timestamp: %v", err)
-				}
-
-				c.SetWriteDeadline(time.Now().Add(time.Second))
-				if _, err := c.Write(header.Bytes()); err != nil {
-					log.Printf("[Publisher] Failed to Write: '%v', closing connection.", err)
+				client.SetWriteDeadline(time.Now().Add(time.Second))
+				if _, err := client.Write(data); err != nil {
+					log.Printf("Failed to Write: '%v', closing connection", err)
 					break
 				}
-				n, err := c.Write(b.Bytes())
-				if err != nil {
-					log.Printf("[Publisher] Failed to Write: '%v', closing connection.", err)
-					break
-				}
-				c.SetWriteDeadline(time.Time{}) // No timeout
-				log.Printf("[Publisher] Writen %d bytes in %v", n, time.Since(t))
+				client.SetWriteDeadline(time.Time{}) // No timeout
 			}
-			delete(p.clients, addr)
-			log.Printf("[Publisher] Goodbye %v!", addr)
+			delete(p.clients, client.RemoteAddr().String())
+			log.Printf("Goodbye %v!", client.RemoteAddr())
 		}(conn)
 	}
 }
@@ -97,46 +69,44 @@ func (p *Publisher) sender() {
 func (p *Publisher) Start(stream chan []byte) {
 	go p.sender()
 
-	var buffer bytes.Buffer
+	var packet Packet
+
 	idleTime := time.Now()
 	ticker := time.NewTicker(time.Second)
-	counter := 0
 	for {
 		select {
+		// Read from channel of decoded packets
+		case data := <-stream:
+			if err := packet.AddRequest(data); err != nil {
+				log.Printf("Failed to add request: %v", err)
+			}
+
 		case now := <-ticker.C:
-			if counter == 0 {
-				log.Printf("[Publisher] No packets for %.f sec (since %v)!\n",
+			if packet.Count == 0 {
+				log.Printf("No packets for %.f sec (since %v)!\n",
 					time.Now().Sub(idleTime).Seconds(), idleTime.Format("15:04:05"))
 				continue
 			}
 			idleTime = now
 
-			if len(p.clients) > 0 {
-				for _, c := range p.clients {
-					// TODO: send time with data
-					if len(c) == 10 {
-						close(c) // clients channel is full, looks like it's dead
-						log.Printf("[Publisher] Close client connection, too slow")
-						continue
-					}
-					c <- buffer.Bytes()
+			t := time.Now()
+			data, err := packet.Get(now)
+			if err != nil {
+				log.Printf("Failed to prepare packet: %v", err)
+				packet.Reset()
+				continue
+			}
+			log.Printf("Prepared packet of %v requests in %v", packet.Count, time.Since(t))
+
+			for _, c := range p.clients {
+				if len(c) == cap(c) {
+					close(c) // clients channel is full, looks like it's dead
+					log.Printf("Close client connection - too slow")
+					continue
 				}
-				log.Printf("[Publisher] Send %d packets to %d clients\n", counter, len(p.clients))
-			} else {
-				log.Printf("[Publisher] Got %d packets, but no clients to send to!\n", counter)
+				c <- data
 			}
-
-			buffer.Reset()
-			counter = 0
-
-		// Read from channel of decoded packets
-		case data := <-stream:
-			n := int32(len(data))
-			if err := binary.Write(&buffer, binary.LittleEndian, n); err != nil {
-				fmt.Printf("Failed to write data length: %v", err)
-			}
-			buffer.Write(data)
-			counter += 1
+			packet.Reset()
 		}
 	}
 }

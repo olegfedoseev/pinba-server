@@ -32,7 +32,7 @@ var testData = []byte{
 }
 
 func TestReadValidServerMessage(t *testing.T) {
-	message := serverMessage{}
+	message := ServerMessage{}
 
 	r := bytes.NewReader(testData)
 

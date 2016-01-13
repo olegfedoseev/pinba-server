@@ -7,8 +7,8 @@ import (
 	"io"
 )
 
-// serverMessage is struct to read and "decode" pinba-collector (server) messages
-type serverMessage struct {
+// ServerMessage is struct to read and "decode" pinba-collector (server) messages
+type ServerMessage struct {
 	Timestamp int64
 	Data      bytes.Buffer
 
@@ -17,7 +17,7 @@ type serverMessage struct {
 
 // ReadFrom will read message from given io.Reader and "extract" from it
 // timestamp and raw byte data of pinba requests for this timestamp
-func (message *serverMessage) ReadFrom(r io.Reader) error {
+func (message *ServerMessage) ReadFrom(r io.Reader) error {
 	if err := binary.Read(r, binary.LittleEndian, &message.length); err != nil {
 		return err
 	}

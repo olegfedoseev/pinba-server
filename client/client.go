@@ -49,7 +49,7 @@ func (c *Client) Listen(interval int64) {
 
 	go c.decode()
 
-	var message serverMessage
+	var message ServerMessage
 	var buffer bytes.Buffer
 
 	lastFlush := time.Now().Unix()

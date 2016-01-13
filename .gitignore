@@ -2,3 +2,4 @@ pinba-server
 *.out
 
 sftp-config.json
+bin/

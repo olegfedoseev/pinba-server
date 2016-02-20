@@ -11,12 +11,14 @@ import (
 
 	"bosun.org/collect"
 	"bosun.org/opentsdb"
+	"github.com/olegfedoseev/pinba-server/client"
 )
 
 type Writer struct {
 	input         chan []*RawMetric
 	config        *Config
 	metricsBuffer *Metrics
+	tsdbURL       string
 }
 
 func NewWriter(config *Config, src chan []*RawMetric) (*Writer, error) {
@@ -25,21 +27,66 @@ func NewWriter(config *Config, src chan []*RawMetric) (*Writer, error) {
 		return nil, fmt.Errorf("failed to resolve %q: %v", config.TSDBhost, err)
 	}
 
+	tsdbUrl := &url.URL{
+		Scheme: "http",
+		Host:   config.TSDBhost,
+		Path:   "api/put",
+	}
+
 	w := &Writer{
 		config:        config,
 		input:         src,
 		metricsBuffer: NewMetrics(100000),
+		tsdbURL:       tsdbUrl.String(),
 	}
 	return w, nil
 }
 
-func (w *Writer) Start() {
-
+func (w *Writer) Start(requestsChan chan *client.PinbaRequests) {
 	prev := time.Now().Unix()
 	cnt := 0
 
+	buffer := make([]*RawMetric, 0)
 	for {
 		select {
+		case requests := <-requestsChan:
+			t := time.Now()
+			for _, request := range requests.Requests {
+				// server tag is mandatory
+				server, _ := request.Tags.Get("server")
+				if server == "" || server == "unknown" {
+					continue // no server tag :(
+				}
+
+				buffer = append(buffer, &RawMetric{
+					Timestamp: requests.Timestamp,
+					Name:      "request",
+					Count:     1,
+					Value:     request.RequestTime,
+					Cpu:       request.RuUtime + request.RuStime,
+					Tags:      request.Tags,
+				})
+
+				for _, timer := range request.Timers {
+					buffer = append(buffer, &RawMetric{
+						Timestamp: requests.Timestamp,
+						Name:      "timer",
+						Count:     int64(timer.HitCount),
+						Value:     timer.Value,
+						Cpu:       timer.RuUtime + timer.RuStime,
+						Tags:      timer.Tags,
+					})
+				}
+			}
+
+			// Convert 95735 requests to 516653 RawMetrics for 1455687090 in 82ms
+			d := time.Since(t)
+			log.Printf("[INFO][%v] Convert %v requests to %v RawMetrics in %v",
+				requests.Timestamp, len(requests.Requests), len(buffer), d-d%time.Millisecond)
+
+			w.input <- buffer
+			buffer = make([]*RawMetric, 0)
+
 		case input := <-w.input:
 			if len(input) == 0 {
 				log.Printf("Input is empty\n")
@@ -51,12 +98,6 @@ func (w *Writer) Start() {
 			cnt += len(input)
 
 			for _, m := range input {
-				// server tag is mandatory
-				server, _ := m.Tags.Get("server")
-				if server == "" || server == "unknown" {
-					continue // no server tag :(
-				}
-
 				for _, metric := range w.config.Metrics {
 					if m.Name != metric.Type {
 						continue
@@ -94,18 +135,17 @@ func (w *Writer) Start() {
 				w.metricsBuffer.Reset()
 			}
 
-			log.Printf("Get %v metrics for %v, appended in %v",
-				len(input), input[0].Timestamp, time.Now().Sub(t))
+			d := time.Since(t)
+			log.Printf("[INFO][%d] Get %v metrics, appended in %v",
+				input[0].Timestamp, len(input), d-d%time.Millisecond)
 		}
 	}
 }
 
 func (w *Writer) send(ts int64, data map[string]*Metric, rawCount int) error {
-	var dps opentsdb.MultiDataPoint
-	batchSize := 1000
 	t := time.Now()
-	putUrl := (&url.URL{Scheme: "http", Host: w.config.TSDBhost, Path: "api/put"}).String()
 
+	var dps opentsdb.MultiDataPoint
 	for _, m := range data {
 		if strings.HasSuffix(m.Name, ".cpu") {
 			cpu := m.Percentile(95)
@@ -123,45 +163,55 @@ func (w *Writer) send(ts int64, data map[string]*Metric, rawCount int) error {
 	}
 
 	total := 0
+	batchSize := 100
 	for len(dps) > 0 {
 		count := len(dps)
-		if len(dps) > batchSize {
+		if count > batchSize {
 			count = batchSize
 		}
-		putResp, err := collect.SendDataPoints(dps[:count], putUrl)
+		putResp, err := collect.SendDataPoints(dps[:count], w.tsdbURL)
 		if err != nil {
 			return err
 		}
-		defer putResp.Body.Close()
+		putResp.Body.Close()
 
 		if putResp.StatusCode != 204 {
-			return fmt.Errorf("Non 204 status code from opentsdb: %d", putResp.StatusCode)
+			return fmt.Errorf("non 204 status code from OpenTSDB: %d", putResp.StatusCode)
 		}
 		dps = dps[count:]
 		total += count
 	}
 
+	if err := w.sendSelfStats(ts, total, rawCount, time.Since(t)); err != nil {
+		return fmt.Errorf("failed to send self-stats: %v", err)
+	}
+
+	// [INFO][1455942780] 191072 unique metrics sent to OpenTSDB in 12.514s
+	d := time.Since(t)
+	log.Printf("[INFO][%d] %v unique metrics sent to OpenTSDB in %v", ts, total, d-d%time.Millisecond)
+	return nil
+}
+
+func (w *Writer) sendSelfStats(ts int64, metrics, raw int, sendIn time.Duration) error {
 	memStats := &runtime.MemStats{}
 	runtime.ReadMemStats(memStats)
 
 	typeTag := opentsdb.TagSet{"type": w.config.Prefix}
 
-	putResp, err := collect.SendDataPoints(opentsdb.MultiDataPoint{
-		&opentsdb.DataPoint{"pinba.aggregator.count", ts, total, typeTag},
-		&opentsdb.DataPoint{"pinba.aggregator.time", ts, time.Since(t).Seconds(), typeTag},
-		&opentsdb.DataPoint{"pinba.aggregator.metrics", ts, rawCount, typeTag},
+	response, err := collect.SendDataPoints(opentsdb.MultiDataPoint{
+		&opentsdb.DataPoint{"pinba.aggregator.time", ts, sendIn.Seconds(), typeTag},
+		&opentsdb.DataPoint{"pinba.aggregator.count", ts, metrics, typeTag},
+		&opentsdb.DataPoint{"pinba.aggregator.metrics", ts, raw, typeTag},
 		&opentsdb.DataPoint{"pinba.aggregator.goroutines", ts, runtime.NumGoroutine(), typeTag},
 		&opentsdb.DataPoint{"pinba.aggregator.memory.allocated", ts, memStats.Alloc, typeTag},
 		&opentsdb.DataPoint{"pinba.aggregator.memory.mallocs", ts, memStats.Mallocs, typeTag},
 		&opentsdb.DataPoint{"pinba.aggregator.memory.frees", ts, memStats.Frees, typeTag},
 		&opentsdb.DataPoint{"pinba.aggregator.memory.heap", ts, memStats.HeapAlloc, typeTag},
 		&opentsdb.DataPoint{"pinba.aggregator.memory.stack", ts, memStats.StackInuse, typeTag},
-	}, putUrl)
+	}, w.tsdbURL)
 	if err != nil {
 		return err
 	}
-	defer putResp.Body.Close()
-
-	log.Printf("[Writer] %v unique metrics sent to OpenTSDB in %v (%v)", total, time.Since(t), ts)
+	response.Body.Close()
 	return nil
 }

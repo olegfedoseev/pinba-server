@@ -32,7 +32,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create OpenTSDB writer: %v", err)
 	}
-	go writer.Start()
 
 	fmt.Printf("Reading from %q\n", *inAddr)
 	fmt.Printf("OpenTSDB at %q\n", config.TSDBhost)
@@ -40,38 +39,5 @@ func main() {
 	fmt.Printf("Prefix is %q\n", config.Prefix)
 	fmt.Println()
 
-	buffer := make([]*RawMetric, 0)
-
-	for {
-		select {
-		case requests := <-pinba.Requests:
-			t := time.Now()
-			for _, request := range requests.Requests {
-				buffer = append(buffer, &RawMetric{
-					Timestamp: requests.Timestamp,
-					Name:      "request",
-					Count:     1,
-					Value:     request.RequestTime,
-					Cpu:       request.RuUtime + request.RuStime,
-					Tags:      request.Tags,
-				})
-
-				for _, timer := range request.Timers {
-					buffer = append(buffer, &RawMetric{
-						Timestamp: requests.Timestamp,
-						Name:      "timer",
-						Count:     int64(timer.HitCount),
-						Value:     timer.Value,
-						Cpu:       timer.RuUtime + timer.RuStime,
-						Tags:      timer.Tags,
-					})
-				}
-			}
-			log.Printf("Convert %v requests to %v RawMetrics for %v in %v",
-				len(requests.Requests), len(buffer), requests.Timestamp, time.Since(t))
-
-			metrics <- buffer
-			buffer = make([]*RawMetric, 0)
-		}
-	}
+	writer.Start(pinba.Requests)
 }

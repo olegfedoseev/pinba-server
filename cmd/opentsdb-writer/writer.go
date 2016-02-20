@@ -14,23 +14,27 @@ import (
 )
 
 type Writer struct {
-	input  chan []*RawMetric
-	addr   string
-	prefix string
+	input         chan []*RawMetric
+	config        *Config
+	metricsBuffer *Metrics
 }
 
-func NewWriter(prefix string, addr string, src chan []*RawMetric) (w *Writer) {
-	_, err := net.ResolveTCPAddr("tcp4", addr)
+func NewWriter(config *Config, src chan []*RawMetric) (*Writer, error) {
+	_, err := net.ResolveTCPAddr("tcp4", config.TSDBhost)
 	if err != nil {
-		log.Fatalf("ResolveTCPAddr: '%v'", err)
+		return nil, fmt.Errorf("failed to resolve %q: %v", config.TSDBhost, err)
 	}
-	return &Writer{prefix: prefix, input: src, addr: addr}
+
+	w := &Writer{
+		config:        config,
+		input:         src,
+		metricsBuffer: NewMetrics(100000),
+	}
+	return w, nil
 }
 
 func (w *Writer) Start() {
-	log.Printf("Ready!")
 
-	metricsBuffer := NewMetrics(100000)
 	prev := time.Now().Unix()
 	cnt := 0
 
@@ -47,42 +51,47 @@ func (w *Writer) Start() {
 			cnt += len(input)
 
 			for _, m := range input {
-				ts := m.Timestamp * 1000
+				// server tag is mandatory
 				server, _ := m.Tags.Get("server")
 				if server == "" || server == "unknown" {
 					continue // no server tag :(
 				}
 
-				if m.Name == "request" {
-					tags := m.Tags.Filter([]string{"server", "user", "category", "type", "region"})
-					metricsBuffer.Add(ts, tags, w.prefix+".requests", m.Count, m.Value, m.Cpu)
-
-					tags = m.Tags.Filter([]string{"script", "status", "user", "category", "type", "region"})
-					metricsBuffer.Add(ts, tags, w.prefix+".requests."+server, m.Count, m.Value, m.Cpu)
-
-				} else if m.Name == "timer" {
-					group, err := m.Tags.Get("group")
-					if err != nil {
-						continue // no group tag :(
+				for _, metric := range w.config.Metrics {
+					if m.Name != metric.Type {
+						continue
 					}
 
-					tags := m.Tags.Filter([]string{"server", "operation", "category", "type", "region", "ns", "database"})
-					metricsBuffer.Add(ts, tags, w.prefix+".timers."+group, m.Count, m.Value, 0)
+					// We can't have metrics without tags
+					tags := m.Tags.Filter(metric.Tags)
+					if len(tags) == 0 {
+						continue
+					}
 
-					tags = m.Tags.Filter([]string{"script", "operation", "category", "type", "region", "ns", "database"})
-					metricsBuffer.Add(ts, tags, w.prefix+".timers."+server+"."+group, m.Count, m.Value, 0)
+					if len(metric.ReqiredTags) > 0 &&
+						len(m.Tags.Filter(metric.ReqiredTags)) != len(metric.ReqiredTags) {
+						continue
+					}
 
-				} else {
-					metricsBuffer.Add(ts, m.Tags, m.Name, m.Count, m.Value, 0)
+					name := w.config.Prefix + m.Tags.Stringf(metric.Name)
+
+					w.metricsBuffer.Add(tags, name, m.Count, m.Value)
+
+					// If for this metric we also want CPU time, then add it
+					// with different name
+					if metric.CPUTime {
+						w.metricsBuffer.Add(tags, name+".cpu", m.Count, m.Cpu)
+					}
 				}
 			}
+
 			// If this is 10th second or it was more than 10 second since last flush
 			if ts%10 == 0 || ts-prev > 10 {
-				go w.send(ts, metricsBuffer.Data, cnt)
+				go w.send(ts, w.metricsBuffer.Data, cnt)
 
 				prev = ts
 				cnt = 0
-				metricsBuffer.Reset()
+				w.metricsBuffer.Reset()
 			}
 
 			log.Printf("Get %v metrics for %v, appended in %v",
@@ -95,7 +104,7 @@ func (w *Writer) send(ts int64, data map[string]*Metric, rawCount int) error {
 	var dps opentsdb.MultiDataPoint
 	batchSize := 1000
 	t := time.Now()
-	putUrl := (&url.URL{Scheme: "http", Host: w.addr, Path: "api/put"}).String()
+	putUrl := (&url.URL{Scheme: "http", Host: w.config.TSDBhost, Path: "api/put"}).String()
 
 	for _, m := range data {
 		if strings.HasSuffix(m.Name, ".cpu") {
@@ -135,7 +144,7 @@ func (w *Writer) send(ts int64, data map[string]*Metric, rawCount int) error {
 	memStats := &runtime.MemStats{}
 	runtime.ReadMemStats(memStats)
 
-	typeTag := opentsdb.TagSet{"type": w.prefix}
+	typeTag := opentsdb.TagSet{"type": w.config.Prefix}
 
 	putResp, err := collect.SendDataPoints(opentsdb.MultiDataPoint{
 		&opentsdb.DataPoint{"pinba.aggregator.count", ts, total, typeTag},

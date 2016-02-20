@@ -1,0 +1,34 @@
+prefix: "php."
+interval: 10
+tsdb_host: "127.0.0.1:4242"
+metrics:
+    - tags: ["server", "user", "category", "type", "region"]
+      name: "requests"
+      type: "request"
+      required: ["server"]
+      cpu: true
+
+    - tags: ["script", "status", "user", "category", "type", "region"]
+      name: "requests.{server}"
+      type: "request"
+      required: ["server"]
+      cpu: false
+
+    - tags: ["script"]
+      name: "requests.{server}.script"
+      type: "request"
+      required: ["server"]
+      cpu: true
+
+    - tags: ["server", "operation", "category", "type", "region", "ns", "database"]
+      name: "timers.{group}"
+      type: "timer"
+      required: ["server", "group"]
+      cpu: false
+
+    - tags: ["script", "operation", "category", "type", "region", "ns", "database"]
+      name: "timers.{server}.{group}"
+      type: "timer"
+      required: ["server", "group"]
+      cpu: false
+

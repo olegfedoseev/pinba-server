@@ -2,9 +2,9 @@ package main
 
 import (
 	"math"
-	"regexp"
 	"sort"
-	"strconv"
+	"unicode"
+	"unicode/utf8"
 
 	"bosun.org/opentsdb"
 	"github.com/olegfedoseev/pinba"
@@ -22,11 +22,8 @@ type RawMetric struct {
 func TagSet(t *pinba.Tags) opentsdb.TagSet {
 	sort.Sort(t)
 	ts := make(opentsdb.TagSet)
-	// may only contain alphanumeric characters plus periods '.', slash '/', dash '-', and underscore '_'.
-	re := regexp.MustCompile("[^\\w\\d\\.\\/\\-\\_]")
-
 	for _, tag := range *t {
-		ts[tag.Key] = re.ReplaceAllString(tag.Value, "_")
+		ts[tag.Key] = MustReplace(tag.Value, "_")
 	}
 	return ts
 }
@@ -41,18 +38,12 @@ func NewMetrics(size int64) (m *Metrics) {
 	return &Metrics{Count: 0, Data: make(map[string]*Metric, size), size: size}
 }
 
-func (m *Metrics) Add(ts int64, tags pinba.Tags, name string, count int64, value, cpu float32) {
+func (m *Metrics) Add(tags pinba.Tags, name string, count int64, value float32) {
 	id := name + tags.String()
 	if _, ok := m.Data[id]; !ok {
-		m.Data[id] = NewMetric(ts, name, tags)
+		m.Data[id] = NewMetric(name, tags)
 	}
 	m.Data[id].Add(count, float64(value))
-
-	id = name + ".cpu" + tags.String()
-	if _, ok := m.Data[id]; !ok {
-		m.Data[id] = NewMetric(ts, name+".cpu", tags)
-	}
-	m.Data[id].Add(0, float64(cpu))
 	m.Count += 1
 }
 
@@ -62,12 +53,10 @@ func (m *Metrics) Reset() {
 }
 
 type Metric struct {
-	Time   string
 	Name   string
 	Count  int64
 	Values []float64
 	Tags   opentsdb.TagSet
-	length int64
 	sorted bool
 }
 
@@ -78,54 +67,46 @@ func sum(values []float64) (sum float64) {
 	return
 }
 
-func NewMetric(ts int64, name string, tags pinba.Tags) (m *Metric) {
+func NewMetric(name string, tags pinba.Tags) (m *Metric) {
 	return &Metric{
-		Time:   strconv.FormatInt(ts, 10),
-		Name:   name,
-		Tags:   TagSet(&tags),
-		Count:  0,
-		length: 0,
+		Name:  name,
+		Tags:  TagSet(&tags),
+		Count: 0,
 	}
 }
 
 func (m *Metric) Add(cnt int64, val float64) {
 	m.Count += cnt
 	m.Values = append(m.Values, val)
-	m.length += 1
 	m.sorted = false
+}
+
+func (m *Metric) IsEmpty() bool {
+	return len(m.Values) == 0
 }
 
 func (m *Metric) Max() float64 {
 	m.sort()
-	return m.Values[m.length-1]
+	return m.Values[len(m.Values)-1]
 }
 
 func (m *Metric) Median() float64 {
 	m.sort()
-	return m.Values[m.length/2]
+	return m.Values[len(m.Values)/2]
 }
 
 func (m *Metric) Stdev() float64 {
-	if m.length == 0 {
-		return 0.0
-	}
+	avg := sum(m.Values) / float64(len(m.Values))
 
-	m.sort()
-
-	mean := sum(m.Values) / float64(m.length)
 	var variance float64
 	for _, val := range m.Values {
-		variance += (val - mean) * (val - mean)
+		variance += (val - avg) * (val - avg)
 	}
 
-	return math.Sqrt(variance / float64(m.length-1))
+	return math.Sqrt(variance / float64(len(m.Values)))
 }
 
 func (m *Metric) Percentile(rank int) float64 {
-	if m.length == 0 {
-		return 0.0
-	}
-
 	m.sort()
 	percent := float64(rank) / 100
 	k := float64(len(m.Values)-1) * percent
@@ -141,9 +122,6 @@ func (m *Metric) Percentile(rank int) float64 {
 }
 
 func (m *Metric) Value() float64 {
-	if len(m.Values) == 0 {
-		return 0.0
-	}
 	return m.Values[0]
 }
 
@@ -152,4 +130,24 @@ func (m *Metric) sort() {
 		sort.Float64s(m.Values)
 		m.sorted = true
 	}
+}
+
+// Replace removes characters from s that are invalid for OpenTSDB metric and
+// tag values and replaces them.
+// See: http://opentsdb.net/docs/build/html/user_guide/writing.html#metrics-and-tags
+func MustReplace(s, replacement string) string {
+	var c string
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == '.' || r == '/' {
+			c += string(r)
+		} else {
+			c += replacement
+		}
+		s = s[size:]
+	}
+	if len(c) == 0 {
+		return ""
+	}
+	return c
 }

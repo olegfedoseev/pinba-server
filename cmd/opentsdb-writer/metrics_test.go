@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"bosun.org/opentsdb"
 	"github.com/olegfedoseev/pinba"
 	"github.com/stretchr/testify/assert"
 )
@@ -15,20 +16,8 @@ func TestSum(t *testing.T) {
 	assert.EqualValues(t, 7, sum([]float64{1.5, 2.5, 3}))
 }
 
-func TestNewMetric(t *testing.T) {
-	metric := NewMetric(123, "test.metric", pinba.Tags{pinba.Tag{"aaa", "val_1"}, pinba.Tag{"bbb", "val_2"}})
-	assert.Equal(t, "123", metric.Time)
-	assert.Equal(t, "test.metric", metric.Name)
-	assert.EqualValues(t, 0, metric.Count)
-	assert.EqualValues(t, 0, metric.Value())
-
-	assert.EqualValues(t, 0, metric.Percentile(0))
-	assert.EqualValues(t, 0, metric.Percentile(25))
-	assert.EqualValues(t, 0, metric.Percentile(75))
-}
-
 func TestMetricAdd(t *testing.T) {
-	metric := NewMetric(123, "test.metric", pinba.Tags{pinba.Tag{"aaa", "val_1"}, pinba.Tag{"bbb", "val_2"}})
+	metric := NewMetric("test.metric", pinba.Tags{pinba.Tag{"aaa", "val_1"}, pinba.Tag{"bbb", "val_2"}})
 	assert.EqualValues(t, 0, metric.Count)
 
 	metric.Add(1, 0.1)
@@ -41,7 +30,7 @@ func TestMetricAdd(t *testing.T) {
 }
 
 func TestMetricPercentile(t *testing.T) {
-	metric := NewMetric(123, "test.metric", pinba.Tags{pinba.Tag{"aaa", "val_1"}, pinba.Tag{"bbb", "val_2"}})
+	metric := NewMetric("test.metric", pinba.Tags{pinba.Tag{"aaa", "val_1"}, pinba.Tag{"bbb", "val_2"}})
 
 	// 1.3,2.2,2.7,3.1,3.3,3.7
 
@@ -57,4 +46,49 @@ func TestMetricPercentile(t *testing.T) {
 	assert.InDelta(t, 2.900, metric.Percentile(50), 0.001, "Percentile(50)")
 	assert.InDelta(t, 3.250, metric.Percentile(75), 0.001, "Percentile(75)")
 	assert.InDelta(t, 3.700, metric.Percentile(100), 0.001, "Percentile(100)")
+}
+
+func TestTagsToOpenTSDBTagSet(t *testing.T) {
+	tags := pinba.Tags{
+		pinba.Tag{"aaa", "val::test"},
+		pinba.Tag{"bbb- test", "val_2"},
+	}
+
+	tagset := TagSet(&tags)
+
+	assert.Equal(t, "{aaa=val__test,bbb- test=val_2}", tagset.String())
+}
+
+func TestTagsToOpenTSDBTagSetClean(t *testing.T) {
+	tagset := make(opentsdb.TagSet)
+	tagset["aaa"] = MustReplace("val::test", "_")
+	tagset["bbb- test"] = MustReplace("val_2", "_")
+
+	assert.Equal(t, "{aaa=val__test,bbb- test=val_2}", tagset.String())
+}
+
+func BenchmarkTagSet1(b *testing.B) {
+	b.ResetTimer()
+
+	tags := pinba.Tags{
+		pinba.Tag{"aaa", "val::test"},
+		pinba.Tag{"bbb- test", "val_2"},
+	}
+
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		TagSet(&tags)
+	}
+}
+
+func BenchmarkTagSet2(b *testing.B) {
+	b.ResetTimer()
+
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		opentsdb.MustReplace("val::test", "_")
+		opentsdb.MustReplace("val_2", "_")
+	}
 }

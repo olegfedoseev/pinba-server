@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"time"
 
@@ -10,24 +11,34 @@ import (
 
 func main() {
 	var (
-		inAddr   = flag.String("in", "", "incoming socket")
-		outAddr  = flag.String("out", "", "out address")
-		prefix   = flag.String("prefix", "php", "prefix for metrics names, default - php")
-		interval = flag.Int64("interval", 10, "interval for aggregation, default - 10 (sec)")
+		inAddr     = flag.String("in", "", "incoming socket")
+		configFile = flag.String("config", "config.yml", "config name, default - config.yml")
 	)
 	flag.Parse()
 
-	log.Printf("Pinba aggregator reading from %s\n", *inAddr)
+	config, err := NewConfig(*configFile)
+	if err != nil {
+		log.Fatalf("Failed to load config from %v: %v", *configFile, err)
+	}
 
 	pinba, err := client.New(*inAddr, 5*time.Second, 5*time.Second)
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalf("Failed to create pinba client: %v", err)
 	}
-	go pinba.Listen(*interval)
+	go pinba.Listen(config.Interval)
 
 	metrics := make(chan []*RawMetric, 10)
-	writer := NewWriter(*prefix, *outAddr, metrics)
+	writer, err := NewWriter(config, metrics)
+	if err != nil {
+		log.Fatalf("Failed to create OpenTSDB writer: %v", err)
+	}
 	go writer.Start()
+
+	fmt.Printf("Reading from %q\n", *inAddr)
+	fmt.Printf("OpenTSDB at %q\n", config.TSDBhost)
+	fmt.Printf("Interval is %d\n", config.Interval)
+	fmt.Printf("Prefix is %q\n", config.Prefix)
+	fmt.Println()
 
 	buffer := make([]*RawMetric, 0)
 

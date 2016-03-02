@@ -3,38 +3,26 @@ package main
 import (
 	"math"
 	"sort"
-	"unicode"
-	"unicode/utf8"
 
-	"bosun.org/opentsdb"
+	"github.com/olegfedoseev/opentsdb"
 	"github.com/olegfedoseev/pinba"
 )
 
-type RawMetric struct {
-	Timestamp int64
-	Name      string
-	Count     int64
-	Value     float32
-	Cpu       float32
-	Tags      pinba.Tags
-}
-
-func TagSet(t *pinba.Tags) opentsdb.TagSet {
-	sort.Sort(t)
-	ts := make(opentsdb.TagSet)
-	for _, tag := range *t {
-		ts[tag.Key] = MustReplace(tag.Value, "_")
-	}
-	return ts
+type MetricsSettings struct {
+	Name        string   `yaml:"name"`
+	Tags        []string `yaml:"tags"`
+	Type        string   `yaml:"type"`
+	ReqiredTags []string `yaml:"required"`
+	CPUTime     bool     `yaml:"cpu"`
 }
 
 type Metrics struct {
-	size  int64
+	size  int
 	Count int64
 	Data  map[string]*Metric
 }
 
-func NewMetrics(size int64) (m *Metrics) {
+func NewMetrics(size int) (m *Metrics) {
 	return &Metrics{Count: 0, Data: make(map[string]*Metric, size), size: size}
 }
 
@@ -56,7 +44,7 @@ type Metric struct {
 	Name   string
 	Count  int64
 	Values []float64
-	Tags   opentsdb.TagSet
+	Tags   opentsdb.Tags
 	sorted bool
 }
 
@@ -68,9 +56,14 @@ func sum(values []float64) (sum float64) {
 }
 
 func NewMetric(name string, tags pinba.Tags) (m *Metric) {
+	tagsMap := make(opentsdb.Tags)
+	for _, tag := range tags {
+		tagsMap.Set(tag.Key, tag.Value)
+	}
+
 	return &Metric{
 		Name:  name,
-		Tags:  TagSet(&tags),
+		Tags:  tagsMap,
 		Count: 0,
 	}
 }
@@ -130,24 +123,4 @@ func (m *Metric) sort() {
 		sort.Float64s(m.Values)
 		m.sorted = true
 	}
-}
-
-// Replace removes characters from s that are invalid for OpenTSDB metric and
-// tag values and replaces them.
-// See: http://opentsdb.net/docs/build/html/user_guide/writing.html#metrics-and-tags
-func MustReplace(s, replacement string) string {
-	var c string
-	for len(s) > 0 {
-		r, size := utf8.DecodeRuneInString(s)
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == '.' || r == '/' {
-			c += string(r)
-		} else {
-			c += replacement
-		}
-		s = s[size:]
-	}
-	if len(c) == 0 {
-		return ""
-	}
-	return c
 }

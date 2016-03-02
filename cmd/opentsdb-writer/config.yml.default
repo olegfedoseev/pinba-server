@@ -1,6 +1,15 @@
 prefix: "php."
 interval: 10
-tsdb_host: "127.0.0.1:4242"
+prefix: "test."
+interval: 10
+workers: 4
+batch_size: 1000
+buffer_size: 100000
+
+tsdb:
+  host: "127.0.0.1:4242"
+  timeout: 5000 # ms
+
 metrics:
     - tags: ["server", "user", "category", "type", "region"]
       name: "requests"

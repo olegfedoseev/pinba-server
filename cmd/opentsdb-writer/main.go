@@ -16,7 +16,7 @@ func main() {
 	)
 	flag.Parse()
 
-	config, err := NewConfig(*configFile)
+	config, err := getConfig(*configFile)
 	if err != nil {
 		log.Fatalf("Failed to load config from %v: %v", *configFile, err)
 	}
@@ -27,14 +27,13 @@ func main() {
 	}
 	go pinba.Listen(config.Interval)
 
-	metrics := make(chan []*RawMetric, 10)
-	writer, err := NewWriter(config, metrics)
+	writer, err := NewWriter(config)
 	if err != nil {
 		log.Fatalf("Failed to create OpenTSDB writer: %v", err)
 	}
 
 	fmt.Printf("Reading from %q\n", *inAddr)
-	fmt.Printf("OpenTSDB at %q\n", config.TSDBhost)
+	fmt.Printf("OpenTSDB at %q\n", config.TSDB.Host)
 	fmt.Printf("Interval is %d\n", config.Interval)
 	fmt.Printf("Prefix is %q\n", config.Prefix)
 	fmt.Println()

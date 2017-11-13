@@ -12,6 +12,7 @@ import (
 func main() {
 	var (
 		inAddr     = flag.String("in", "", "incoming socket")
+		tsdbAddr   = flag.String("tsdb", "", "tsdb host:port")
 		configFile = flag.String("config", "config.yml", "config name, default - config.yml")
 	)
 	flag.Parse()
@@ -19,6 +20,10 @@ func main() {
 	config, err := getConfig(*configFile)
 	if err != nil {
 		log.Fatalf("Failed to load config from %v: %v", *configFile, err)
+	}
+	// Overwrite OpenTSDB host in config
+	if *tsdbAddr != "" {
+		config.TSDB.Host = *tsdbAddr
 	}
 
 	pinba, err := client.New(*inAddr, 5*time.Second, 5*time.Second)

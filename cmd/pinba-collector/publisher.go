@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -10,9 +11,11 @@ type clientChan chan []byte
 
 type Publisher struct {
 	Server  *net.TCPListener
-	clients map[string]clientChan
 	packets int
 	timer   time.Duration
+
+	sync.RWMutex
+	clients map[string]clientChan
 }
 
 func NewPublisher(outAddr *string) (*Publisher, error) {
@@ -42,16 +45,17 @@ func (p *Publisher) sender() {
 			log.Fatal(err)
 		}
 
-		p.clients[conn.RemoteAddr().String()] = make(chan []byte, 10)
 		log.Printf("Look's like we got customer! He's from %v", conn.RemoteAddr())
 
+		p.Lock()
+		p.clients[conn.RemoteAddr().String()] = make(chan []byte, 10)
 		// Handle the connection in a new goroutine.
-		go func(client *net.TCPConn) {
+		go func(client *net.TCPConn, dataChan chan []byte) {
 			defer client.Close()
 			client.SetNoDelay(false)
 
 			for {
-				data := <-p.clients[client.RemoteAddr().String()]
+				data := <-dataChan
 
 				client.SetWriteDeadline(time.Now().Add(time.Second))
 				if _, err := client.Write(data); err != nil {
@@ -60,9 +64,12 @@ func (p *Publisher) sender() {
 				}
 				client.SetWriteDeadline(time.Time{}) // No timeout
 			}
+			p.Lock()
 			delete(p.clients, client.RemoteAddr().String())
+			p.Unlock()
 			log.Printf("Goodbye %v!", client.RemoteAddr())
-		}(conn)
+		}(conn, p.clients[conn.RemoteAddr().String()])
+		p.Unlock()
 	}
 }
 
